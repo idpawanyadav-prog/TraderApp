@@ -1,0 +1,16 @@
+{
+  "5paisa": {
+    "email": "5PAISA_Registered_EMAIL_ID",
+    "user_key": "{xstream_API_Key}",
+    "encryption_key": "{xstream_encryption_key}",
+    "user_id": "{xstream_user_id}",
+    "client_code": "5Paisa_client_code",
+    "pin": "5Paisa_Login_PIN",
+    "totp_secret": "5Paisa_TOTP_Secret"
+  },
+  "dhan": {
+    "client_id": "",
+    "access_token": "",
+    "totp_secret": ""
+  }
+}

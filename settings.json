@@ -1,0 +1,53 @@
+{
+  "api_enabled": true,
+  "api_key": "b022341b-207c-4cdb-b1ce-660beca9f5e6",
+  "ta_enabled": true,
+  "ta_indicators": [
+    {
+      "id": "RSI_14",
+      "type": "rsi",
+      "params": {
+        "period": 14
+      }
+    },
+    {
+      "id": "ATR_14",
+      "type": "atr",
+      "params": {
+        "period": 14
+      }
+    },
+    {
+      "id": "ema_200",
+      "type": "ema",
+      "params": {
+        "period": 200
+      }
+    },
+    {
+      "id": "ema_20",
+      "type": "ema",
+      "params": {
+        "period": 20
+      }
+    }
+  ],
+  "dhan_enabled": false,
+  "chart_refresh_interval": 50,
+  "enabled_markets": [
+    "NSE_EQ",
+    "NSE_FNO",
+    "BSE_EQ",
+    "BSE_FNO"
+  ],
+  "enabled_exchanges": [
+    "N",
+    "B",
+    "M"
+  ],
+  "enabled_instrument_types": [
+    "C",
+    "D"
+  ],
+  "5paisa_enabled": true
+}

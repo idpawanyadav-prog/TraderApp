@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TraderApp</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+<header>
+  <button class="sidebar-toggle" id="sidebar-toggle">☰</button>
+  <div class="logo">📈 TraderApp</div>
+  <span class="phase-badge">Phase 1</span>
+</header>
+
+<div class="app-shell">
+
+  <!-- ── Sidebar ── -->
+  <nav class="sidebar" id="sidebar">
+    <ul class="nav-list">
+      <li class="nav-group-label">Main</li>
+      <li>
+        <a class="nav-item active" data-page="home" href="#">
+          <span class="nav-icon">🏠</span> Home
+        </a>
+      </li>
+      <li class="nav-group-label">Broker</li>
+      <li>
+        <a class="nav-item" data-page="connect-broker" href="#">
+          <span class="nav-icon">🔌</span> Connect to Broker
+        </a>
+      </li>
+      <li class="nav-group-label">App</li>
+      <li>
+        <a class="nav-item" data-page="settings" href="#">
+          <span class="nav-icon">⚙️</span> Settings
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <!-- ── Page Content ── -->
+  <main class="page-content">
+
+    <!-- ══ Page: Home ══ -->
+    <div class="page active" id="page-home">
+      <section class="card chart-card">
+        <div class="chart-toolbar">
+          <div class="chart-broker-tabs" id="chart-broker-tabs">
+            <button class="cbrok-btn" data-cbrok="dhan">Dhan</button>
+            <button class="cbrok-btn active" data-cbrok="5paisa">5Paisa</button>
+          </div>
+          <div class="chart-search-wrap">
+            <input type="text" id="stock-search" placeholder="Search symbol e.g. RELIANCE, NIFTY…" autocomplete="off" />
+            <ul class="search-dropdown hidden" id="search-dropdown"></ul>
+          </div>
+          <div class="interval-group" id="interval-group">
+            <button class="ivl-btn active" data-ivl="1">1m</button>
+            <button class="ivl-btn" data-ivl="5">5m</button>
+            <button class="ivl-btn" data-ivl="15">15m</button>
+            <button class="ivl-btn" data-ivl="25">25m</button>
+            <button class="ivl-btn" data-ivl="60">1h</button>
+            <button class="ivl-btn" data-ivl="D">1D</button>
+          </div>
+          <button class="btn-primary" id="load-chart-btn">Load Chart</button>
+        </div>
+        <div id="chart-meta" class="chart-meta hidden">
+          <span id="chart-symbol-label"></span>
+          <span id="chart-ohlc"></span>
+          <span id="live-badge" class="live-badge" style="display:none"><span id="live-dot" class="live-dot">●</span> LIVE</span>
+        </div>
+        <div id="chart-container"></div>
+        <div id="chart-message" class="chart-message">Select a stock and click Load Chart</div>
+      </section>
+    </div><!-- /page-home -->
+
+    <!-- ══ Page: Connect to Broker ══ -->
+    <div class="page" id="page-connect-broker">
+
+      <!-- Broker Connect Section -->
+      <section class="card" id="broker-section">
+        <h2>Connect to Broker</h2>
+
+        <div class="broker-tabs">
+          <button class="tab-btn" data-broker="dhan">Dhan</button>
+          <button class="tab-btn active" data-broker="5paisa">5Paisa</button>
+        </div>
+
+        <!-- Dhan Panel -->
+        <div class="broker-panel hidden" id="panel-dhan">
+
+          <div class="status-bar" id="dhan-status">
+            {% if connected %}
+              <span class="badge connected">● Connected</span>
+            {% else %}
+              <span class="badge disconnected">● Disconnected</span>
+            {% endif %}
+          </div>
+
+          <form id="dhan-cred-form">
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>Client ID</label>
+                <div class="input-mask-row">
+                  <input type="text" id="client-id" placeholder="Enter Dhan Client ID"
+                         value="{{ client_id }}" autocomplete="off" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Access Token</label>
+                <div class="input-mask-row">
+                  <input type="password" id="access-token" placeholder="Enter Access Token"
+                         value="{{ dhan_access_token }}" autocomplete="off" />
+                  <button type="button" class="btn-mask" data-target="access-token" title="Show">👁</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>TOTP Secret (base-32)</label>
+              <div class="input-mask-row">
+                <input type="password" id="totp-secret" placeholder="Enter TOTP Secret"
+                       value="{{ totp_secret }}" autocomplete="off" />
+                <button type="button" class="btn-mask" data-target="totp-secret" title="Show">👁</button>
+                <button type="button" class="btn-secondary" id="gen-totp-btn">Generate TOTP</button>
+              </div>
+              <div id="totp-display" class="totp-display hidden">
+                <span class="totp-code" id="totp-code">------</span>
+                <span class="totp-timer" id="totp-timer"></span>
+              </div>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn-primary" id="save-cred-btn">💾 Save Credentials</button>
+              <button type="button" class="btn-success" id="connect-btn">🔌 Connect</button>
+              <button type="button" class="btn-danger" id="disconnect-btn">⛔ Disconnect</button>
+            </div>
+          </form>
+
+          <div id="message-box" class="message-box hidden"></div>
+
+        </div><!-- /panel-dhan -->
+
+        <!-- 5Paisa Panel -->
+        <div class="broker-panel" id="panel-5paisa">
+
+          <div class="status-bar" id="5paisa-status">
+            {% if fp_connected %}
+              <span class="badge connected">● Connected</span>
+            {% else %}
+              <span class="badge disconnected">● Disconnected</span>
+            {% endif %}
+          </div>
+
+          <form id="5paisa-cred-form">
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>Registered Email</label>
+                <div class="input-mask-row">
+                  <input type="email" id="fp-email" placeholder="Email registered with 5Paisa"
+                         value="{{ fp_email }}" autocomplete="off" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Client Code</label>
+                <div class="input-mask-row">
+                  <input type="text" id="fp-client-code" placeholder="5Paisa Client Code"
+                         value="{{ fp_client_code }}" autocomplete="off" />
+                </div>
+              </div>
+            </div>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>PIN</label>
+                <div class="input-mask-row">
+                  <input type="password" id="fp-pin" placeholder="5Paisa PIN"
+                         value="{{ fp_pin }}" autocomplete="off" />
+                  <button type="button" class="btn-mask" data-target="fp-pin" title="Show">👁</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>User ID</label>
+                <div class="input-mask-row">
+                  <input type="text" id="fp-user-id" placeholder="User ID"
+                         value="{{ fp_user_id }}" autocomplete="off" />
+                </div>
+              </div>
+            </div>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>User Key (API Key)</label>
+                <div class="input-mask-row">
+                  <input type="password" id="fp-user-key" placeholder="User Key"
+                         value="{{ fp_user_key }}" autocomplete="off" />
+                  <button type="button" class="btn-mask" data-target="fp-user-key" title="Show">👁</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Encryption Key</label>
+                <div class="input-mask-row">
+                  <input type="password" id="fp-encryption-key" placeholder="Encryption Key"
+                         value="{{ fp_encryption_key }}" autocomplete="off" />
+                  <button type="button" class="btn-mask" data-target="fp-encryption-key" title="Show">👁</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>TOTP Secret (base-32)</label>
+              <div class="input-mask-row">
+                <input type="password" id="fp-totp-secret" placeholder="Enter TOTP Secret"
+                       value="{{ fp_totp_secret }}" autocomplete="off" />
+                <button type="button" class="btn-mask" data-target="fp-totp-secret" title="Show">👁</button>
+                <button type="button" class="btn-secondary" id="fp-gen-totp-btn">Generate TOTP</button>
+              </div>
+              <div id="fp-totp-display" class="totp-display hidden">
+                <span class="totp-code" id="fp-totp-code">------</span>
+                <span class="totp-timer" id="fp-totp-timer"></span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Access Token <span class="field-hint">(optional — skip TOTP if provided)</span></label>
+              <div class="input-mask-row">
+                <input type="password" id="fp-access-token" placeholder="Paste existing access token (optional)"
+                       value="{{ fp_access_token }}" autocomplete="off" />
+                <button type="button" class="btn-mask" data-target="fp-access-token" title="Show">👁</button>
+              </div>
+              {% if fp_token_expiry_dt %}
+              <div class="field-hint" style="margin-top:4px;">Saved token expires: <strong>{{ fp_token_expiry_dt }}</strong></div>
+              {% endif %}
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn-primary" id="fp-save-cred-btn">💾 Save Credentials</button>
+              <button type="button" class="btn-success" id="fp-connect-btn">🔌 Connect</button>
+              <button type="button" class="btn-danger" id="fp-disconnect-btn">⛔ Disconnect</button>
+            </div>
+          </form>
+
+          <div id="fp-message-box" class="message-box hidden"></div>
+
+        </div><!-- /panel-5paisa -->
+      </section>
+
+      <!-- Account Info Section -->
+      <section class="card" id="user-info-section" {% if not connected %}style="display:none"{% endif %}>
+        <h2>Account Info</h2>
+        <div class="user-grid" id="user-grid">
+          {% if dhan_user %}
+            {% if dhan_user.client_id %}
+            <div class="info-item"><span class="info-label">Client ID</span><span class="info-value">{{ dhan_user.client_id }}</span></div>
+            {% endif %}
+            {% if dhan_user.token_validity %}
+            <div class="info-item"><span class="info-label">Token Validity</span><span class="info-value">{{ dhan_user.token_validity }}</span></div>
+            {% endif %}
+            {% if dhan_user.active_segment %}
+            <div class="info-item"><span class="info-label">Active Segments</span><span class="info-value">{{ dhan_user.active_segment }}</span></div>
+            {% endif %}
+            {% if dhan_user.ddpi %}
+            <div class="info-item"><span class="info-label">DDPI</span><span class="info-value">{{ dhan_user.ddpi }}</span></div>
+            {% endif %}
+            {% if dhan_user.mtf %}
+            <div class="info-item"><span class="info-label">MTF</span><span class="info-value">{{ dhan_user.mtf }}</span></div>
+            {% endif %}
+            {% if dhan_user.data_plan %}
+            <div class="info-item"><span class="info-label">Data Plan</span><span class="info-value">{{ dhan_user.data_plan }}</span></div>
+            {% endif %}
+            {% if dhan_user.data_validity %}
+            <div class="info-item"><span class="info-label">Data Validity</span><span class="info-value">{{ dhan_user.data_validity }}</span></div>
+            {% endif %}
+            <div class="info-item"><span class="info-label">Available Balance</span><span class="info-value balance">₹ {{ dhan_user.available_balance }}</span></div>
+            <div class="info-item"><span class="info-label">Utilized Amount</span><span class="info-value">₹ {{ dhan_user.utilized_amount }}</span></div>
+            <div class="info-item"><span class="info-label">Withdrawable</span><span class="info-value">₹ {{ dhan_user.withdrawable }}</span></div>
+            <div class="info-item"><span class="info-label">Collateral</span><span class="info-value">₹ {{ dhan_user.collateral }}</span></div>
+          {% endif %}
+        </div>
+      </section>
+
+      <!-- 5Paisa Account Info -->
+      <section class="card" id="fp-user-info-section" {% if not fp_connected %}style="display:none"{% endif %}>
+        <h2>5Paisa Account Info</h2>
+        <div class="user-grid" id="fp-user-grid">
+          {% if fp_user %}
+            <div class="info-item"><span class="info-label">Client Code</span><span class="info-value">{{ fp_user.client_code }}</span></div>
+            {% if fp_user.net_available != '' %}
+            <div class="info-item"><span class="info-label">Net Available Margin</span><span class="info-value balance">₹ {{ fp_user.net_available }}</span></div>
+            {% endif %}
+            {% if fp_user.utilized_margin != '' %}
+            <div class="info-item"><span class="info-label">Margin Utilized</span><span class="info-value">₹ {{ fp_user.utilized_margin }}</span></div>
+            {% endif %}
+            {% if fp_user.collateral != '' %}
+            <div class="info-item"><span class="info-label">Collateral</span><span class="info-value">₹ {{ fp_user.collateral }}</span></div>
+            {% endif %}
+            {% if fp_user.adhoc_margin != '' %}
+            <div class="info-item"><span class="info-label">Adhoc Margin</span><span class="info-value">₹ {{ fp_user.adhoc_margin }}</span></div>
+            {% endif %}
+            {% if fp_user.payin_amount != '' %}
+            <div class="info-item"><span class="info-label">Pay-in Amount</span><span class="info-value">₹ {{ fp_user.payin_amount }}</span></div>
+            {% endif %}
+            {% if fp_user.payout_amount != '' %}
+            <div class="info-item"><span class="info-label">Pay-out Amount</span><span class="info-value">₹ {{ fp_user.payout_amount }}</span></div>
+            {% endif %}
+          {% endif %}
+        </div>
+      </section>
+
+    </div><!-- /page-connect-broker -->
+
+    <!-- ══ Page: Settings ══ -->
+    <div class="page" id="page-settings">
+      <section class="card">
+        <h2>Settings</h2>
+        <p class="settings-hint">Enable or disable brokers. Disabled brokers are hidden from the Home chart toolbar and Connect to Broker tabs.</p>
+
+        <div class="settings-group">
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">Dhan</span>
+              <span class="settings-broker-desc">Dhan broker connectivity &amp; charting</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-enable-dhan" checked />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">5Paisa</span>
+              <span class="settings-broker-desc">5Paisa broker connectivity &amp; charting</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-enable-5paisa" checked />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Enable Market</h2>
+        <p class="settings-hint">Select which exchanges and instrument types appear in chart search. Disabled markets are excluded from search results.</p>
+        <div class="ta-section" id="market-section">
+          <div class="ta-header" id="market-section-header" style="cursor:pointer">
+            <div class="ta-header-left">
+              <span class="ta-title">NSE, BSE &amp; MCX Markets</span>
+              <span class="ta-subtitle">Filter chart search by exchange and instrument type</span>
+            </div>
+            <button class="ta-collapse-btn" id="market-collapse-btn" title="Expand / Collapse">&#8964;</button>
+          </div>
+          <div id="market-panel" class="ta-panel hidden">
+            <div class="market-fields-row">
+              <div class="market-field-col">
+                <div class="market-field-label">SEM_EXM_EXCH_ID</div>
+                <div class="market-chk-list" id="market-exchanges">
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-exch-chk" data-code="N" checked />
+                    <span class="market-chk-name">NSE</span><span class="market-chk-tag">N</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-exch-chk" data-code="B" checked />
+                    <span class="market-chk-name">BSE</span><span class="market-chk-tag">B</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-exch-chk" data-code="M" checked />
+                    <span class="market-chk-name">MCX</span><span class="market-chk-tag">M</span>
+                  </label>
+                </div>
+              </div>
+              <div class="market-field-col">
+                <div class="market-field-label">SEM_EXCH_INSTRUMENT_TYPE</div>
+                <div class="market-chk-list" id="market-instr-types">
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-instr-type-chk" data-code="C" checked />
+                    <span class="market-chk-name">Cash / Equity</span><span class="market-chk-tag">C</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-instr-type-chk" data-code="D" checked />
+                    <span class="market-chk-name">Derivatives / F&amp;O</span><span class="market-chk-tag">D</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="market-actions">
+              <button class="btn-primary" id="btn-save-markets">Save Markets</button>
+              <span id="market-save-msg" class="ta-save-msg"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>API Access</h2>
+        <p class="settings-hint">Allow external applications to fetch data through TraderApp using a secret API key.</p>
+
+        <div class="settings-group" style="max-width:520px;margin-bottom:20px">
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">Enable API Connection</span>
+              <span class="settings-broker-desc">Expose a public REST API on this machine</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-enable-api" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div id="api-access-panel" class="api-access-panel hidden">
+
+          <!-- Available Endpoints collapsible -->
+          <div class="ta-section" id="ep-section">
+            <div class="ta-header" id="ep-section-header">
+              <div class="ta-header-left">
+                <span class="ta-title">Available Endpoints</span>
+                <span class="ta-subtitle">No authentication required &mdash; just enable the toggle above</span>
+              </div>
+              <button class="ta-collapse-btn open" id="ep-collapse-btn" title="Expand / Collapse">&#8964;</button>
+            </div>
+            <div id="ep-panel" class="ta-panel">
+              <div class="ep-panel-inner" id="api-endpoint-list"></div>
+            </div>
+          </div>
+
+          <!-- Technical Indicators Section -->
+          <div class="ta-section">
+            <div class="ta-header" id="ta-section-header">
+              <div class="ta-header-left">
+                <label class="toggle-switch" style="margin-right:12px;">
+                  <input type="checkbox" id="setting-enable-ta" />
+                  <span class="toggle-slider"></span>
+                </label>
+                <span class="ta-title">Technical Indicators</span>
+                <span class="ta-subtitle">Append indicator values to API responses when <code>TA=true</code></span>
+              </div>
+              <button class="ta-collapse-btn" id="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+            </div>
+            <div id="ta-panel" class="ta-panel hidden">
+              <div class="ta-panel-inner">
+                <div class="ta-indicator-list" id="ta-indicator-list">
+                  <!-- rows injected by JS -->
+                </div>
+                <div class="ta-add-row">
+                  <select id="ta-type-select" class="ta-select">
+                    <!-- options injected by JS from /public/api/ta/catalog -->
+                  </select>
+                  <button class="btn-secondary ta-add-btn" id="ta-add-btn">+ Add</button>
+                </div>
+                <div class="ta-actions">
+                  <button class="btn-primary" id="ta-save-btn">Save Indicators</button>
+                  <span id="ta-save-msg" class="ta-save-msg"></span>
+                </div>
+                <div class="ta-usage-note">
+                  Usage: append <code>TA=true</code> to any historical API call.<br>
+                  Example: <code id="ta-example-url">/public/api/5paisa/historical?symbol=RELIANCE&amp;interval=15&amp;TA=true</code>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Live Chart</h2>
+        <p class="settings-hint">Automatically refresh the chart at a fixed interval. Set to 0 to disable. Useful for brokers without live push data (e.g. Dhan).</p>
+        <div class="settings-group" style="max-width:520px;">
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">Auto-Refresh Interval</span>
+              <span class="settings-broker-desc">Chart re-fetches data every N milliseconds (0 = off)</span>
+            </div>
+            <div class="refresh-interval-wrap">
+              <input type="number" id="chart-refresh-interval" class="refresh-interval-input" min="0" max="300000" step="500" value="0" />
+              <span class="refresh-interval-unit">ms</span>
+              <button class="btn-secondary" id="btn-save-refresh-interval" style="margin-left:10px;">Save</button>
+            </div>
+          </div>
+          <div id="refresh-interval-msg" class="message-box hidden" style="margin-top:8px;"></div>
+        </div>
+        <div class="refresh-presets">
+          <span class="refresh-preset-label">Presets:</span>
+          <button class="preset-btn" data-ms="0">Off</button>
+          <button class="preset-btn" data-ms="3000">3s</button>
+          <button class="preset-btn" data-ms="5000">5s</button>
+          <button class="preset-btn" data-ms="10000">10s</button>
+          <button class="preset-btn" data-ms="30000">30s</button>
+          <button class="preset-btn" data-ms="60000">1m</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Data &amp; Instruments</h2>
+        <p class="settings-hint">Manage the 5Paisa scrip master used for symbol search and historical data.</p>
+        <div class="settings-group" style="max-width:520px;">
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">5Paisa Scrip Master</span>
+              <span class="settings-broker-desc" id="scrip-master-status">Loading status unknown</span>
+            </div>
+            <button class="btn-secondary" id="btn-update-scrip-master" style="flex-shrink:0;">🔄 Update</button>
+          </div>
+        </div>
+        <div id="scrip-master-msg" class="message-box hidden" style="margin-top:10px;max-width:520px;"></div>
+      </section>
+    </div><!-- /page-settings -->
+  </main>
+</div><!-- /app-shell -->
+
+<script src="/static/js/lightweight-charts.min.js"></script>
+<script src="/static/js/socket.io.min.js"></script>
+<script src="/static/js/main.js"></script>
+</body>
+</html>
