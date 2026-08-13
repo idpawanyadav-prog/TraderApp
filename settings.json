@@ -1,0 +1,163 @@
+{
+  "api_enabled": true,
+  "api_key": "b022341b-207c-4cdb-b1ce-660beca9f5e6",
+  "ta_enabled": true,
+  "ta_indicators": [
+    {
+      "id": "RSI_14",
+      "type": "rsi",
+      "params": {
+        "period": 14
+      }
+    },
+    {
+      "id": "ATR_14",
+      "type": "atr",
+      "params": {
+        "period": 14
+      }
+    },
+    {
+      "id": "ema_200",
+      "type": "ema",
+      "params": {
+        "period": 200
+      }
+    },
+    {
+      "id": "ema_20",
+      "type": "ema",
+      "params": {
+        "period": 20
+      }
+    }
+  ],
+  "dhan_enabled": false,
+  "chart_refresh_interval": 1,
+  "enabled_markets": [
+    "NSE_EQ",
+    "NSE_FNO",
+    "BSE_EQ",
+    "BSE_FNO"
+  ],
+  "enabled_exchanges": [
+    "N",
+    "B",
+    "M"
+  ],
+  "enabled_instrument_types": [
+    "C"
+  ],
+  "enabled_exch_types": [
+    "C"
+  ],
+  "enabled_scrip_types": [
+    "EQ"
+  ],
+  "save_to_datafeed": false,
+  "5paisa_enabled": true,
+  "oc_price_fields": [
+    {
+      "key": "oi",
+      "label": "OI",
+      "visible": true
+    },
+    {
+      "key": "oi_chg",
+      "label": "OI Chg",
+      "visible": true
+    },
+    {
+      "key": "volume",
+      "label": "Volume",
+      "visible": true
+    },
+    {
+      "key": "chg",
+      "label": "Chg",
+      "visible": true
+    },
+    {
+      "key": "chg_pct",
+      "label": "Chg%",
+      "visible": true
+    },
+    {
+      "key": "ltp",
+      "label": "LTP",
+      "visible": true
+    }
+  ],
+  "oc_greeks_fields": [
+    {
+      "key": "delta",
+      "label": "Delta",
+      "visible": true
+    },
+    {
+      "key": "gamma",
+      "label": "Gamma",
+      "visible": true
+    },
+    {
+      "key": "theta",
+      "label": "Theta",
+      "visible": true
+    },
+    {
+      "key": "vega",
+      "label": "Vega",
+      "visible": true
+    },
+    {
+      "key": "rho",
+      "label": "Rho",
+      "visible": true
+    },
+    {
+      "key": "iv",
+      "label": "IV",
+      "visible": true
+    },
+    {
+      "key": "vanna",
+      "label": "Vanna",
+      "visible": false
+    },
+    {
+      "key": "charm",
+      "label": "Charm",
+      "visible": false
+    },
+    {
+      "key": "volga",
+      "label": "Volga",
+      "visible": false
+    },
+    {
+      "key": "iv_vwap",
+      "label": "IV VWAP",
+      "visible": false
+    },
+    {
+      "key": "speed",
+      "label": "Speed",
+      "visible": false
+    },
+    {
+      "key": "zomma",
+      "label": "Zomma",
+      "visible": false
+    },
+    {
+      "key": "color",
+      "label": "Color",
+      "visible": false
+    },
+    {
+      "key": "veta",
+      "label": "Veta",
+      "visible": false
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+# Vendored Python packages (reinstall with install_libs.bat)
+libs/
+
+# Local Python runtimes
+python314/
+python36/
+python*/
+
+# Caches and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Secrets and local credentials
+cred.json
+*.env
+.env
+.env.*
+
+# Local IDE
+.vscode/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

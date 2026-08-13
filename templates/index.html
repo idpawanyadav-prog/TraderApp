@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TraderApp</title>
+  <script>
+    /* Apply saved theme before first paint to avoid a flash */
+    document.documentElement.setAttribute("data-theme",
+      localStorage.getItem("app_theme") === "light" ? "light" : "dark");
+  </script>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+<header>
+  <button class="sidebar-toggle" id="sidebar-toggle">☰</button>
+  <div class="logo">📈 TraderApp</div>
+  <span class="phase-badge">Phase 1</span>
+  <div class="theme-switch" id="theme-switch" title="Switch theme">
+    <button class="theme-opt" data-theme-opt="dark" id="theme-opt-dark">🌙 Dark</button>
+    <button class="theme-opt" data-theme-opt="light" id="theme-opt-light">☀️ White</button>
+  </div>
+</header>
+
+<div class="app-shell">
+
+  <!-- ── Sidebar ── -->
+  <nav class="sidebar" id="sidebar">
+    <ul class="nav-list">
+      <li class="nav-group-label">Main</li>
+      <li>
+        <a class="nav-item active" data-page="home" href="#">
+          <span class="nav-icon">🏠</span> Home
+        </a>
+      </li>
+      <li class="nav-group-label">Broker</li>
+      <li>
+        <a class="nav-item" data-page="connect-broker" href="#">
+          <span class="nav-icon">🔌</span> Connect to Broker
+        </a>
+      </li>
+      <li class="nav-group-label">Analysis</li>
+      <li>
+        <a class="nav-item" data-page="correlation-density" href="#">
+          <span class="nav-icon">📊</span> Correlation Density Curve
+        </a>
+      </li>
+      <li>
+        <a class="nav-item" data-page="option-chain" href="#">
+          <span class="nav-icon">⛓️</span> Option Chain
+        </a>
+      </li>
+      <li>
+        <a class="nav-item" data-page="open-interest" href="#">
+          <span class="nav-icon">📉</span> Open Interest
+        </a>
+      </li>
+      <li>
+        <a class="nav-item" data-page="option-strategy" href="#">
+          <span class="nav-icon">📐</span> Option Strategy Builder
+        </a>
+      </li>
+      <li class="nav-group-label">App</li>
+      <li>
+        <a class="nav-item" data-page="settings" href="#">
+          <span class="nav-icon">⚙️</span> Settings
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <!-- ── Page Content ── -->
+  <main class="page-content">
+
+    <!-- ══ Page: Home ══ -->
+    <div class="page active" id="page-home">
+      <section class="card chart-card">
+        <div class="chart-toolbar">
+          <div class="chart-broker-tabs" id="chart-broker-tabs">
+            <button class="cbrok-btn" data-cbrok="dhan">Dhan</button>
+            <button class="cbrok-btn active" data-cbrok="5paisa">5Paisa</button>
+          </div>
+          <div class="chart-search-wrap">
+            <input type="text" id="stock-search" placeholder="Search symbol e.g. RELIANCE, NIFTY…" autocomplete="off" />
+            <ul class="search-dropdown hidden" id="search-dropdown"></ul>
+          </div>
+          <div class="interval-group" id="interval-group">
+            <button class="ivl-btn active" data-ivl="1">1m</button>
+            <button class="ivl-btn" data-ivl="5">5m</button>
+            <button class="ivl-btn" data-ivl="15">15m</button>
+            <button class="ivl-btn" data-ivl="25">25m</button>
+            <button class="ivl-btn" data-ivl="60">1h</button>
+            <button class="ivl-btn" data-ivl="D">1D</button>
+          </div>
+          <button class="btn-primary" id="load-chart-btn">Load Chart</button>
+        </div>
+        <div id="chart-meta" class="chart-meta hidden">
+          <span id="chart-symbol-label"></span>
+          <span id="chart-ohlc"></span>
+          <span id="live-badge" class="live-badge" style="display:none"><span id="live-dot" class="live-dot">●</span> LIVE</span>
+        </div>
+        <div id="chart-container"></div>
+        <div id="chart-message" class="chart-message">Select a stock and click Load Chart</div>
+      </section>
+    </div><!-- /page-home -->
+
+    <!-- ══ Page: Connect to Broker ══ -->
+    <div class="page" id="page-connect-broker">
+
+      <!-- Broker Connect Section -->
+      <section class="card" id="broker-section">
+        <h2>Connect to Broker</h2>
+
+        <div class="broker-tabs">
+          <button class="tab-btn" data-broker="dhan">Dhan</button>
+          <button class="tab-btn active" data-broker="5paisa">5Paisa</button>
+        </div>
+
+        <!-- Dhan Panel -->
+        <div class="broker-panel hidden" id="panel-dhan">
+
+          <div class="status-bar" id="dhan-status">
+            {% if connected %}
+              <span class="badge connected">● Connected</span>
+            {% else %}
+              <span class="badge disconnected">● Disconnected</span>
+            {% endif %}
+          </div>
+
+          <form id="dhan-cred-form">
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>Client ID</label>
+                <div class="input-mask-row">
+                  <input type="text" id="client-id" placeholder="Enter Dhan Client ID"
+                         value="{{ client_id }}" autocomplete="off" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Access Token</label>
+                <div class="input-mask-row">
+                  <input type="password" id="access-token" placeholder="Enter Access Token"
+                         value="{{ dhan_access_token }}" autocomplete="off" />
+                  <button type="button" class="btn-mask" data-target="access-token" title="Show">👁</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>TOTP Secret (base-32)</label>
+              <div class="input-mask-row">
+                <input type="password" id="totp-secret" placeholder="Enter TOTP Secret"
+                       value="{{ totp_secret }}" autocomplete="off" />
+                <button type="button" class="btn-mask" data-target="totp-secret" title="Show">👁</button>
+                <button type="button" class="btn-secondary" id="gen-totp-btn">Generate TOTP</button>
+              </div>
+              <div id="totp-display" class="totp-display hidden">
+                <span class="totp-code" id="totp-code">------</span>
+                <span class="totp-timer" id="totp-timer"></span>
+              </div>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn-primary" id="save-cred-btn">💾 Save Credentials</button>
+              <button type="button" class="btn-success" id="connect-btn">🔌 Connect</button>
+              <button type="button" class="btn-danger" id="disconnect-btn">⛔ Disconnect</button>
+            </div>
+          </form>
+
+          <div id="message-box" class="message-box hidden"></div>
+
+        </div><!-- /panel-dhan -->
+
+        <!-- 5Paisa Panel -->
+        <div class="broker-panel" id="panel-5paisa">
+
+          <div class="status-bar" id="5paisa-status">
+            {% if fp_connected %}
+              <span class="badge connected">● Connected</span>
+            {% else %}
+              <span class="badge disconnected">● Disconnected</span>
+            {% endif %}
+          </div>
+
+          <form id="5paisa-cred-form">
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>Registered Email</label>
+                <div class="input-mask-row">
+                  <input type="email" id="fp-email" placeholder="Email registered with 5Paisa"
+                         value="{{ fp_email }}" autocomplete="off" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Client Code</label>
+                <div class="input-mask-row">
+                  <input type="text" id="fp-client-code" placeholder="5Paisa Client Code"
+                         value="{{ fp_client_code }}" autocomplete="off" />
+                </div>
+              </div>
+            </div>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>PIN</label>
+                <div class="input-mask-row">
+                  <input type="password" id="fp-pin" placeholder="5Paisa PIN"
+                         value="{{ fp_pin }}" autocomplete="off" />
+                  <button type="button" class="btn-mask" data-target="fp-pin" title="Show">👁</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>User ID</label>
+                <div class="input-mask-row">
+                  <input type="text" id="fp-user-id" placeholder="User ID"
+                         value="{{ fp_user_id }}" autocomplete="off" />
+                </div>
+              </div>
+            </div>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>User Key (API Key)</label>
+                <div class="input-mask-row">
+                  <input type="password" id="fp-user-key" placeholder="User Key"
+                         value="{{ fp_user_key }}" autocomplete="off" />
+                  <button type="button" class="btn-mask" data-target="fp-user-key" title="Show">👁</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Encryption Key</label>
+                <div class="input-mask-row">
+                  <input type="password" id="fp-encryption-key" placeholder="Encryption Key"
+                         value="{{ fp_encryption_key }}" autocomplete="off" />
+                  <button type="button" class="btn-mask" data-target="fp-encryption-key" title="Show">👁</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>TOTP Secret (base-32)</label>
+              <div class="input-mask-row">
+                <input type="password" id="fp-totp-secret" placeholder="Enter TOTP Secret"
+                       value="{{ fp_totp_secret }}" autocomplete="off" />
+                <button type="button" class="btn-mask" data-target="fp-totp-secret" title="Show">👁</button>
+                <button type="button" class="btn-secondary" id="fp-gen-totp-btn">Generate TOTP</button>
+              </div>
+              <div id="fp-totp-display" class="totp-display hidden">
+                <span class="totp-code" id="fp-totp-code">------</span>
+                <span class="totp-timer" id="fp-totp-timer"></span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Access Token <span class="field-hint">(optional — skip TOTP if provided)</span></label>
+              <div class="input-mask-row">
+                <input type="password" id="fp-access-token" placeholder="Paste existing access token (optional)"
+                       value="{{ fp_access_token }}" autocomplete="off" />
+                <button type="button" class="btn-mask" data-target="fp-access-token" title="Show">👁</button>
+              </div>
+              {% if fp_token_expiry_dt %}
+              <div class="field-hint" style="margin-top:4px;">Saved token expires: <strong>{{ fp_token_expiry_dt }}</strong></div>
+              {% endif %}
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn-primary" id="fp-save-cred-btn">💾 Save Credentials</button>
+              <button type="button" class="btn-success" id="fp-connect-btn">🔌 Connect</button>
+              <button type="button" class="btn-danger" id="fp-disconnect-btn">⛔ Disconnect</button>
+            </div>
+          </form>
+
+          <div id="fp-message-box" class="message-box hidden"></div>
+
+        </div><!-- /panel-5paisa -->
+      </section>
+
+      <!-- Account Info Section -->
+      <section class="card" id="user-info-section" {% if not connected %}style="display:none"{% endif %}>
+        <h2>Account Info</h2>
+        <div class="user-grid" id="user-grid">
+          {% if dhan_user %}
+            {% if dhan_user.client_id %}
+            <div class="info-item"><span class="info-label">Client ID</span><span class="info-value">{{ dhan_user.client_id }}</span></div>
+            {% endif %}
+            {% if dhan_user.token_validity %}
+            <div class="info-item"><span class="info-label">Token Validity</span><span class="info-value">{{ dhan_user.token_validity }}</span></div>
+            {% endif %}
+            {% if dhan_user.active_segment %}
+            <div class="info-item"><span class="info-label">Active Segments</span><span class="info-value">{{ dhan_user.active_segment }}</span></div>
+            {% endif %}
+            {% if dhan_user.ddpi %}
+            <div class="info-item"><span class="info-label">DDPI</span><span class="info-value">{{ dhan_user.ddpi }}</span></div>
+            {% endif %}
+            {% if dhan_user.mtf %}
+            <div class="info-item"><span class="info-label">MTF</span><span class="info-value">{{ dhan_user.mtf }}</span></div>
+            {% endif %}
+            {% if dhan_user.data_plan %}
+            <div class="info-item"><span class="info-label">Data Plan</span><span class="info-value">{{ dhan_user.data_plan }}</span></div>
+            {% endif %}
+            {% if dhan_user.data_validity %}
+            <div class="info-item"><span class="info-label">Data Validity</span><span class="info-value">{{ dhan_user.data_validity }}</span></div>
+            {% endif %}
+            <div class="info-item"><span class="info-label">Available Balance</span><span class="info-value balance">₹ {{ dhan_user.available_balance }}</span></div>
+            <div class="info-item"><span class="info-label">Utilized Amount</span><span class="info-value">₹ {{ dhan_user.utilized_amount }}</span></div>
+            <div class="info-item"><span class="info-label">Withdrawable</span><span class="info-value">₹ {{ dhan_user.withdrawable }}</span></div>
+            <div class="info-item"><span class="info-label">Collateral</span><span class="info-value">₹ {{ dhan_user.collateral }}</span></div>
+          {% endif %}
+        </div>
+      </section>
+
+      <!-- 5Paisa Account Info -->
+      <section class="card" id="fp-user-info-section" {% if not fp_connected %}style="display:none"{% endif %}>
+        <h2>5Paisa Account Info</h2>
+        <div class="user-grid" id="fp-user-grid">
+          {% if fp_user %}
+            <div class="info-item"><span class="info-label">Client Code</span><span class="info-value">{{ fp_user.client_code }}</span></div>
+            {% if fp_user.net_available != '' %}
+            <div class="info-item"><span class="info-label">Net Available Margin</span><span class="info-value balance">₹ {{ fp_user.net_available }}</span></div>
+            {% endif %}
+            {% if fp_user.utilized_margin != '' %}
+            <div class="info-item"><span class="info-label">Margin Utilized</span><span class="info-value">₹ {{ fp_user.utilized_margin }}</span></div>
+            {% endif %}
+            {% if fp_user.collateral != '' %}
+            <div class="info-item"><span class="info-label">Collateral</span><span class="info-value">₹ {{ fp_user.collateral }}</span></div>
+            {% endif %}
+            {% if fp_user.adhoc_margin != '' %}
+            <div class="info-item"><span class="info-label">Adhoc Margin</span><span class="info-value">₹ {{ fp_user.adhoc_margin }}</span></div>
+            {% endif %}
+            {% if fp_user.payin_amount != '' %}
+            <div class="info-item"><span class="info-label">Pay-in Amount</span><span class="info-value">₹ {{ fp_user.payin_amount }}</span></div>
+            {% endif %}
+            {% if fp_user.payout_amount != '' %}
+            <div class="info-item"><span class="info-label">Pay-out Amount</span><span class="info-value">₹ {{ fp_user.payout_amount }}</span></div>
+            {% endif %}
+          {% endif %}
+        </div>
+      </section>
+
+    </div><!-- /page-connect-broker -->
+
+    <!-- ══ Page: Settings ══ -->
+    <div class="page" id="page-settings">
+      <section class="card">
+        <div class="settings-card-header">
+          <h2>Settings</h2>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+        </div>
+        <div class="settings-card-body hidden">
+        <p class="settings-hint">Enable or disable brokers. Disabled brokers are hidden from the Home chart toolbar and Connect to Broker tabs.</p>
+
+        <div class="settings-group">
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">Dhan</span>
+              <span class="settings-broker-desc">Dhan broker connectivity &amp; charting</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-enable-dhan" checked />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">5Paisa</span>
+              <span class="settings-broker-desc">5Paisa broker connectivity &amp; charting</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-enable-5paisa" checked />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="settings-card-header">
+          <h2>Enable Market</h2>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+        </div>
+        <div class="settings-card-body hidden">
+        <p class="settings-hint">Filter Instrument.csv for chart search. A row must match Exch, ExchType, and ScripType (AND). Equity includes cash XX rows; CE/PE Option covers both call and put.</p>
+        <div class="ta-section" id="market-section">
+          <div id="market-panel" class="ta-panel">
+            <div class="market-toolbar">
+              <button type="button" class="btn-secondary" id="btn-reset-markets">Reset All</button>
+              <span class="market-toolbar-hint">Selects every option in all three columns</span>
+            </div>
+            <div class="market-fields-row">
+              <div class="market-field-col">
+                <div class="market-field-label">Exch</div>
+                <div class="market-chk-list" id="market-exchanges" data-group="exch">
+                  <label class="market-chk-row market-select-all-row">
+                    <input type="checkbox" class="market-select-all" data-group="exch" checked />
+                    <span class="market-chk-name">Select All</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-exch-chk" data-code="N" checked />
+                    <span class="market-chk-name">NSE</span><span class="market-chk-tag">N</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-exch-chk" data-code="B" checked />
+                    <span class="market-chk-name">BSE</span><span class="market-chk-tag">B</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-exch-chk" data-code="M" checked />
+                    <span class="market-chk-name">MCX</span><span class="market-chk-tag">M</span>
+                  </label>
+                </div>
+              </div>
+              <div class="market-field-col">
+                <div class="market-field-label">ExchType</div>
+                <div class="market-chk-list" id="market-exch-types" data-group="exchType">
+                  <label class="market-chk-row market-select-all-row">
+                    <input type="checkbox" class="market-select-all" data-group="exchType" checked />
+                    <span class="market-chk-name">Select All</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-exch-type-chk" data-code="C" checked />
+                    <span class="market-chk-name">Cash</span><span class="market-chk-tag">C</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-exch-type-chk" data-code="D" checked />
+                    <span class="market-chk-name">Derivative</span><span class="market-chk-tag">D</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-exch-type-chk" data-code="U" checked />
+                    <span class="market-chk-name">Currency</span><span class="market-chk-tag">U</span>
+                  </label>
+                </div>
+              </div>
+              <div class="market-field-col">
+                <div class="market-field-label">ScripType</div>
+                <div class="market-chk-list" id="market-scrip-types" data-group="scripType">
+                  <label class="market-chk-row market-select-all-row">
+                    <input type="checkbox" class="market-select-all" data-group="scripType" checked />
+                    <span class="market-chk-name">Select All</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-scrip-type-chk" data-code="EQ" checked />
+                    <span class="market-chk-name">Equity</span><span class="market-chk-tag">EQ</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-scrip-type-chk" data-code="XX" checked />
+                    <span class="market-chk-name">Future</span><span class="market-chk-tag">XX</span>
+                  </label>
+                  <label class="market-chk-row">
+                    <input type="checkbox" class="market-scrip-type-chk" data-code="OP" checked />
+                    <span class="market-chk-name">CE/PE Option</span><span class="market-chk-tag">CE/PE</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="market-datafeed-row">
+              <label class="market-chk-row market-datafeed-chk">
+                <input type="checkbox" id="chk-save-datafeed" />
+                <span class="market-chk-name">Save data in DataFeed folder</span>
+              </label>
+              <span class="market-toolbar-hint">When checked, downloaded OHLCV is stored under datafeed/ for reuse</span>
+            </div>
+            <div class="market-actions">
+              <button class="btn-primary" id="btn-save-markets">Save Markets</button>
+              <span id="market-save-msg" class="ta-save-msg"></span>
+            </div>
+          </div>
+        </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="settings-card-header">
+          <h2>Option Chain</h2>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+        </div>
+        <div class="settings-card-body hidden">
+        <p class="settings-hint">Hide or show columns and reorder them for Price and Greeks views on the Option Chain page.</p>
+        <div class="ta-section" id="oc-settings-section">
+          <div id="oc-settings-panel" class="ta-panel">
+            <div class="oc-settings-toolbar">
+              <button type="button" class="btn-secondary" id="btn-reset-oc-fields">Reset Defaults</button>
+              <span class="market-toolbar-hint">Restores all fields visible in default order</span>
+            </div>
+            <div class="oc-settings-cols">
+              <div class="oc-settings-col">
+                <div class="market-field-label">Price Fields</div>
+                <div class="oc-field-list" id="oc-price-fields"></div>
+              </div>
+              <div class="oc-settings-col">
+                <div class="market-field-label">Greeks Fields</div>
+                <div class="oc-field-list" id="oc-greeks-fields"></div>
+              </div>
+            </div>
+            <div class="market-actions">
+              <button class="btn-primary" id="btn-save-oc-fields">Save Option Chain</button>
+              <span id="oc-fields-save-msg" class="ta-save-msg"></span>
+            </div>
+          </div>
+        </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="settings-card-header">
+          <h2>API Access</h2>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+        </div>
+        <div class="settings-card-body hidden">
+        <p class="settings-hint">Allow external applications to fetch data through TraderApp using a secret API key.</p>
+
+        <div class="settings-group" style="max-width:520px;margin-bottom:20px">
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">Enable API Connection</span>
+              <span class="settings-broker-desc">Expose a public REST API on this machine</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-enable-api" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div id="api-access-panel" class="api-access-panel hidden">
+
+          <!-- Available Endpoints collapsible -->
+          <div class="ta-section" id="ep-section">
+            <div class="ta-header" id="ep-section-header">
+              <div class="ta-header-left">
+                <span class="ta-title">Available Endpoints</span>
+                <span class="ta-subtitle">No authentication required &mdash; just enable the toggle above</span>
+              </div>
+              <button class="ta-collapse-btn" id="ep-collapse-btn" title="Expand / Collapse">&#8964;</button>
+            </div>
+            <div id="ep-panel" class="ta-panel hidden">
+              <div class="ep-panel-inner" id="api-endpoint-list"></div>
+            </div>
+          </div>
+
+          <!-- Technical Indicators Section -->
+          <div class="ta-section">
+            <div class="ta-header" id="ta-section-header">
+              <div class="ta-header-left">
+                <label class="toggle-switch" style="margin-right:12px;">
+                  <input type="checkbox" id="setting-enable-ta" />
+                  <span class="toggle-slider"></span>
+                </label>
+                <span class="ta-title">Technical Indicators</span>
+                <span class="ta-subtitle">Append indicator values to API responses when <code>TA=true</code></span>
+              </div>
+              <button class="ta-collapse-btn" id="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+            </div>
+            <div id="ta-panel" class="ta-panel hidden">
+              <div class="ta-panel-inner">
+                <div class="ta-indicator-list" id="ta-indicator-list">
+                  <!-- rows injected by JS -->
+                </div>
+                <div class="ta-add-row">
+                  <select id="ta-type-select" class="ta-select">
+                    <!-- options injected by JS from /public/api/ta/catalog -->
+                  </select>
+                  <button class="btn-secondary ta-add-btn" id="ta-add-btn">+ Add</button>
+                </div>
+                <div class="ta-actions">
+                  <button class="btn-primary" id="ta-save-btn">Save Indicators</button>
+                  <span id="ta-save-msg" class="ta-save-msg"></span>
+                </div>
+                <div class="ta-usage-note">
+                  Usage: append <code>TA=true</code> to any historical API call.<br>
+                  Example: <code id="ta-example-url">/public/api/5paisa/historical?symbol=RELIANCE&amp;interval=15&amp;TA=true</code>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+      </section>
+      <section class="card">
+        <div class="settings-card-header">
+          <h2>Live Chart</h2>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+        </div>
+        <div class="settings-card-body hidden">
+        <p class="settings-hint">Automatically refresh the chart at a fixed interval. Set to 0 to disable. Useful for brokers without live push data (e.g. Dhan).</p>
+        <div class="settings-group" style="max-width:520px;">
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">Auto-Refresh Interval</span>
+              <span class="settings-broker-desc">Chart re-fetches data every N milliseconds (0 = off)</span>
+            </div>
+            <div class="refresh-interval-wrap">
+              <input type="number" id="chart-refresh-interval" class="refresh-interval-input" min="0" max="300000" step="500" value="0" />
+              <span class="refresh-interval-unit">ms</span>
+              <button class="btn-secondary" id="btn-save-refresh-interval" style="margin-left:10px;">Save</button>
+            </div>
+          </div>
+          <div id="refresh-interval-msg" class="message-box hidden" style="margin-top:8px;"></div>
+        </div>
+        <div class="refresh-presets">
+          <span class="refresh-preset-label">Presets:</span>
+          <button class="preset-btn" data-ms="0">Off</button>
+          <button class="preset-btn" data-ms="3000">3s</button>
+          <button class="preset-btn" data-ms="5000">5s</button>
+          <button class="preset-btn" data-ms="10000">10s</button>
+          <button class="preset-btn" data-ms="30000">30s</button>
+          <button class="preset-btn" data-ms="60000">1m</button>
+        </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="settings-card-header">
+          <h2>Data &amp; Instruments</h2>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+        </div>
+        <div class="settings-card-body hidden">
+        <p class="settings-hint">Instrument.csv stays in the app folder. Price data is saved under <code>datafeed/</code>. Click Update to re-download Instrument.csv.</p>
+        <div class="settings-group" style="max-width:520px;">
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">5Paisa Scrip Master</span>
+              <span class="settings-broker-desc" id="scrip-master-status">Loading status unknown</span>
+            </div>
+            <button class="btn-secondary" id="btn-update-scrip-master" style="flex-shrink:0;">🔄 Update</button>
+          </div>
+        </div>
+        <div id="scrip-master-msg" class="message-box hidden" style="margin-top:10px;max-width:520px;"></div>
+        </div>
+      </section>
+    </div><!-- /page-settings -->
+
+    <!-- ══ Page: Correlation Density Curve ══ -->
+    <div class="page" id="page-correlation-density">
+      <section class="card">
+        <h2>📊 Correlation Density Curve <span class="phase-badge">Pair Screener</span></h2>
+
+        <div class="cdc-filter-panel">
+          <div class="cdc-filter-grid">
+            <div class="form-group">
+              <label for="cdc-from">Start Date</label>
+              <input type="date" id="cdc-from" />
+            </div>
+            <div class="form-group">
+              <label for="cdc-to">End Date</label>
+              <input type="date" id="cdc-to" />
+            </div>
+            <div class="form-group">
+              <label for="cdc-interval">Interval</label>
+              <select id="cdc-interval">
+                <option value="D" selected>1 Day</option>
+                <option value="60">1 Hour</option>
+                <option value="25">30 Min</option>
+                <option value="15">15 Min</option>
+                <option value="5">5 Min</option>
+                <option value="1">1 Min</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="cdc-sector">Sector</label>
+              <select id="cdc-sector">
+                <option value="">All Sectors</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="cdc-window">Rolling Window</label>
+              <input type="number" id="cdc-window" value="250" min="20" max="5000" step="10" />
+            </div>
+          </div>
+          <div class="cdc-actions">
+            <button class="btn-primary" id="cdc-scan-btn">▶ Scan</button>
+            <button class="btn-secondary hidden" id="cdc-cancel-btn">✕ Cancel</button>
+            <button class="btn-secondary" id="cdc-export-btn" disabled>⬇ Export CSV</button>
+            <input type="text" id="cdc-grid-filter" placeholder="Filter results…" class="cdc-grid-filter" />
+          </div>
+          <div class="cdc-progress-wrap hidden" id="cdc-progress-wrap">
+            <div class="cdc-progress-bar"><div class="cdc-progress-fill" id="cdc-progress-fill"></div></div>
+            <span class="cdc-status-label" id="cdc-status-label"></span>
+          </div>
+          <div id="cdc-msg" class="message-box hidden"></div>
+        </div>
+
+        <!-- Screener: client-side filter over scan results -->
+        <div class="cdc-screener-bar">
+          <label class="cdc-screener-toggle">
+            <input type="checkbox" id="cdc-screener-on" />
+            <span>Screener</span>
+          </label>
+          <div class="form-group">
+            <label for="cdc-lower">Lower Density Limit</label>
+            <input type="number" id="cdc-lower" value="0.01" min="0" max="0.5" step="0.01" />
+          </div>
+          <div class="form-group">
+            <label for="cdc-upper">Higher Density Limit</label>
+            <input type="number" id="cdc-upper" value="0.99" min="0.5" max="1" step="0.01" />
+          </div>
+          <div class="form-group">
+            <label for="cdc-mincorr">Minimum Correlation</label>
+            <input type="number" id="cdc-mincorr" value="0.80" min="-1" max="1" step="0.05" />
+          </div>
+          <span class="cdc-screener-count" id="cdc-screener-count"></span>
+        </div>
+
+        <div class="cdc-grid-wrap">
+          <table class="cdc-grid" id="cdc-grid">
+            <thead><tr id="cdc-grid-head"></tr></thead>
+            <tbody id="cdc-grid-body"></tbody>
+          </table>
+          <div class="cdc-grid-empty" id="cdc-grid-empty">Run a scan to see pair signals.</div>
+        </div>
+        <div class="cdc-grid-footer hidden" id="cdc-grid-footer"></div>
+      </section>
+    </div><!-- /page-correlation-density -->
+
+    <!-- ══ Page: Option Chain + Greeks ══ -->
+    <div class="page" id="page-option-chain">
+      <section class="card">
+        <h2>Option Chain <span class="phase-badge">5Paisa · Greeks</span></h2>
+        <p class="settings-hint">NSE option chain with live quotes. Greeks come from 5Paisa’s Greeks WebSocket when available; otherwise Black–Scholes is used from LTP.</p>
+
+        <div class="oc-filter-panel">
+          <div class="oc-filter-grid">
+            <div class="form-group">
+              <label for="oc-symbol">Underlying</label>
+              <select id="oc-symbol">
+                <option value="">Loading…</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="oc-expiry">Expiry</label>
+              <select id="oc-expiry">
+                <option value="">Select symbol first</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="oc-window">Strikes ±ATM</label>
+              <input type="number" id="oc-window" value="12" min="5" max="40" step="1" />
+            </div>
+            <div class="form-group oc-filter-actions">
+              <label>&nbsp;</label>
+              <div class="oc-btn-row">
+                <button class="btn-primary" id="oc-load-btn">Load Chain</button>
+                <label class="oc-auto-label">
+                  <input type="checkbox" id="oc-auto-refresh" /> Auto 5s
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="oc-meta" id="oc-meta">
+            <span id="oc-spot-label">Spot: —</span>
+            <span id="oc-greeks-src">Greeks: —</span>
+            <span id="oc-updated">Updated: —</span>
+            <div class="oc-view-switch" id="oc-view-switch">
+              <button type="button" class="oc-view-btn active" data-view="price">Price</button>
+              <button type="button" class="oc-view-btn" data-view="greeks">Greeks</button>
+            </div>
+          </div>
+          <div id="oc-msg" class="message-box hidden"></div>
+        </div>
+
+        <div class="oc-table-wrap">
+          <table class="oc-table" id="oc-table">
+            <thead id="oc-thead"></thead>
+            <tbody id="oc-tbody">
+              <tr><td colspan="13" class="oc-empty">Select an underlying and expiry, then Load Chain.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div><!-- /page-option-chain -->
+
+    <!-- ══ Page: Open Interest ══ -->
+    <div class="page" id="page-open-interest">
+      <section class="card oi-card">
+        <div class="oi-top">
+          <div class="oi-subtabs" id="oi-subtabs">
+            <button type="button" class="oi-subtab active" data-oi-view="change">OI Change</button>
+            <button type="button" class="oi-subtab" data-oi-view="oi">Open Interest</button>
+            <button type="button" class="oi-subtab" data-oi-view="multi">Multistrike OI</button>
+            <button type="button" class="oi-subtab" data-oi-view="opt-time">Option OI vs Time</button>
+            <button type="button" class="oi-subtab" data-oi-view="fut-time">Fut OI vs Time</button>
+          </div>
+          <div class="oi-badges">
+            <span class="oi-badge" id="oi-vix-badge">INDIAVIX —</span>
+            <span class="oi-badge" id="oi-pcr-badge">PCR —</span>
+            <span class="oi-badge oi-src" id="oi-src-badge">Data: —</span>
+          </div>
+        </div>
+
+        <div class="oi-body">
+          <aside class="oi-filters">
+            <div class="form-group oi-search-group">
+              <label for="oi-symbol-search">Ticker</label>
+              <input type="text" id="oi-symbol-search" placeholder="Search NIFTY, BANKNIFTY…" autocomplete="off" />
+              <ul class="oi-symbol-dd hidden" id="oi-symbol-dd"></ul>
+            </div>
+
+            <div class="form-group">
+              <label>Range</label>
+              <div class="oi-seg" id="oi-range-mode">
+                <button type="button" class="oi-seg-btn active" data-mode="intraday">Intraday</button>
+                <button type="button" class="oi-seg-btn" data-mode="custom">Custom Range</button>
+              </div>
+              <div id="oi-custom-wrap" class="oi-custom-wrap hidden">
+                <input type="date" id="oi-custom-date" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Expiries Included</label>
+              <div class="oi-expiry-list" id="oi-expiry-list"></div>
+            </div>
+
+            <div class="form-group">
+              <label>Strike Range</label>
+              <div class="oi-strike-range">
+                <input type="number" id="oi-strike-min" placeholder="Min" />
+                <span class="oi-range-sep">–</span>
+                <input type="number" id="oi-strike-max" placeholder="Max" />
+              </div>
+              <button type="button" class="btn-secondary oi-reset-btn" id="oi-strike-reset">Reset</button>
+            </div>
+
+            <div class="form-group">
+              <label>Strikes above and below ATM</label>
+              <div class="oi-atm-btns" id="oi-atm-window">
+                <button type="button" class="oi-chip" data-n="all">Show All</button>
+                <button type="button" class="oi-chip" data-n="5">5</button>
+                <button type="button" class="oi-chip active" data-n="10">10</button>
+                <button type="button" class="oi-chip" data-n="15">15</button>
+                <button type="button" class="oi-chip" data-n="20">20</button>
+                <button type="button" class="oi-chip" data-n="25">25</button>
+              </div>
+            </div>
+          </aside>
+
+          <div class="oi-main">
+            <div class="oi-chart-head">
+              <h2 id="oi-chart-title">OI Change vs Strike</h2>
+              <div class="oi-chart-actions">
+                <button type="button" class="oi-link-btn" id="oi-how-btn">How to read this?</button>
+                <label class="oi-toggle">
+                  <input type="checkbox" id="oi-show-oi" />
+                  <span>Show OI</span>
+                </label>
+              </div>
+            </div>
+            <div class="oi-howto hidden" id="oi-howto">
+              Green bars are Put OI change; red bars are Call OI change. A build-up of Put OI near a strike often acts as support; Call OI build-up often acts as resistance. The dashed line is ATM / last underlying. Negative bars mean OI unwound in the selected window.
+            </div>
+            <div class="oi-placeholder hidden" id="oi-placeholder">This view is not built yet. Use OI Change for the Sensibull-style strike chart.</div>
+            <div class="oi-chart-wrap" id="oi-chart-wrap">
+              <canvas id="oi-chart"></canvas>
+            </div>
+            <div class="oi-time-block" id="oi-time-block">
+              <div class="oi-slider-row">
+                <span class="oi-time-label" id="oi-time-from">9:15 AM</span>
+                <div class="oi-dual-range">
+                  <input type="range" id="oi-slider-from" min="0" max="75" step="1" value="0" />
+                  <input type="range" id="oi-slider-to" min="0" max="75" step="1" value="75" />
+                </div>
+                <span class="oi-time-label" id="oi-time-to">3:30 PM</span>
+              </div>
+              <div class="oi-presets" id="oi-presets">
+                <button type="button" class="oi-chip" data-mins="3">Last 3 mins</button>
+                <button type="button" class="oi-chip" data-mins="5">Last 5 mins</button>
+                <button type="button" class="oi-chip" data-mins="10">Last 10 mins</button>
+                <button type="button" class="oi-chip" data-mins="15">Last 15 mins</button>
+                <button type="button" class="oi-chip" data-mins="30">Last 30 mins</button>
+                <button type="button" class="oi-chip" data-mins="60">Last 1 Hr</button>
+                <button type="button" class="oi-chip" data-mins="120">Last 2 Hrs</button>
+                <button type="button" class="oi-chip" data-mins="180">Last 3 Hrs</button>
+                <button type="button" class="oi-chip active" data-mins="full">Full Day</button>
+              </div>
+            </div>
+            <div class="oi-summary" id="oi-summary">
+              <div class="oi-sum-cell"><span>Call OI change</span><b id="oi-sum-call">—</b></div>
+              <div class="oi-sum-cell"><span>Put OI change</span><b id="oi-sum-put">—</b></div>
+              <div class="oi-sum-cell"><span>Underlying (start)</span><b id="oi-sum-start">—</b></div>
+              <div class="oi-sum-cell"><span>Underlying (end)</span><b id="oi-sum-end">—</b></div>
+            </div>
+            <div class="oi-footer">
+              <span id="oi-refreshed">Last refreshed: —</span>
+              <span class="oi-disclaimer">Exchange OI is not true real-time (typically lags 1–3 minutes).</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div><!-- /page-open-interest -->
+
+    <!-- ══ Page: Option Strategy Builder ══ -->
+    <div class="page" id="page-option-strategy">
+      <section class="card sb-card">
+        <div class="sb-toolbar">
+          <div class="sb-symbol-wrap">
+            <input type="text" id="sb-symbol-search" class="sb-symbol-search" placeholder="Search NIFTY, BANKNIFTY…" autocomplete="off" />
+            <ul class="sb-symbol-dd hidden" id="sb-symbol-dd"></ul>
+            <select id="sb-symbol" class="hidden"></select>
+          </div>
+          <div class="sb-spot-block">
+            <span class="sb-spot" id="sb-spot">—</span>
+            <span class="sb-chg" id="sb-chg"></span>
+          </div>
+          <div class="form-group sb-expiry-group">
+            <label for="sb-expiry">Expiry</label>
+            <select id="sb-expiry"></select>
+          </div>
+          <label class="oc-auto-label">
+            <input type="checkbox" id="sb-auto-refresh" /> Auto 5s
+          </label>
+          <button class="btn-primary" id="sb-load-btn">Load</button>
+          <span class="sb-status" id="sb-status"></span>
+        </div>
+        <div id="sb-msg" class="message-box hidden"></div>
+
+        <div class="sb-layout">
+          <div class="sb-left">
+            <div class="sb-panel">
+              <div class="sb-panel-head">
+                <h3 id="sb-strategy-title">New Strategy</h3>
+                <button type="button" class="btn-secondary sb-tiny" id="sb-clear-btn">Clear</button>
+              </div>
+              <div class="sb-legs-wrap">
+                <table class="sb-legs">
+                  <thead>
+                    <tr>
+                      <th></th>
+                      <th>B/S</th>
+                      <th>Expiry</th>
+                      <th>Strike</th>
+                      <th>Type</th>
+                      <th>Lots</th>
+                      <th>Price</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="sb-legs-body">
+                    <tr class="sb-empty-row"><td colspan="8">Pick a ready-made strategy or Add/Edit legs from the chain.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="sb-adjust">
+                <div class="sb-adj">
+                  <span>Shift</span>
+                  <button type="button" data-adj="shift" data-dir="-1">−</button>
+                  <button type="button" data-adj="shift" data-dir="1">+</button>
+                </div>
+                <div class="sb-adj">
+                  <span>Width</span>
+                  <button type="button" data-adj="width" data-dir="-1">−</button>
+                  <button type="button" data-adj="width" data-dir="1">+</button>
+                </div>
+                <div class="sb-adj">
+                  <span>Hedge</span>
+                  <button type="button" data-adj="hedge" data-dir="-1">−</button>
+                  <button type="button" data-adj="hedge" data-dir="1">+</button>
+                </div>
+              </div>
+              <div class="sb-premium-row">
+                <span>Lot <b id="sb-lot">—</b></span>
+                <span>Price <b id="sb-net-price">—</b></span>
+                <span>Premium <b id="sb-premium">—</b></span>
+              </div>
+              <div class="sb-actions">
+                <button type="button" class="btn-secondary" id="sb-add-edit-btn">Add/Edit</button>
+                <button type="button" class="btn-primary" id="sb-trade-btn" disabled>Analyse</button>
+              </div>
+            </div>
+
+            <div class="sb-panel sb-chain-panel hidden" id="sb-chain-panel">
+              <div class="sb-panel-head">
+                <h3>Option Chain</h3>
+                <span class="sb-chain-hint">B = Buy · S = Sell</span>
+              </div>
+              <div class="sb-chain-wrap">
+                <table class="sb-chain" id="sb-chain">
+                  <thead>
+                    <tr>
+                      <th colspan="4" class="oc-th-ce">CALLS</th>
+                      <th class="oc-th-strike">Strike</th>
+                      <th colspan="4" class="oc-th-pe">PUTS</th>
+                    </tr>
+                    <tr>
+                      <th></th><th>LTP</th><th>IV</th><th>OI</th>
+                      <th class="oc-th-strike">Strike</th>
+                      <th>OI</th><th>IV</th><th>LTP</th><th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="sb-chain-body">
+                    <tr><td colspan="9" class="oc-empty">Load an underlying to see the chain.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="sb-panel">
+              <div class="sb-ready-tabs">
+                <button type="button" class="sb-ready-tab active">Ready-made</button>
+              </div>
+              <div class="sb-bias" id="sb-bias">
+                <button type="button" class="sb-bias-btn active" data-bias="bullish">Bullish</button>
+                <button type="button" class="sb-bias-btn" data-bias="bearish">Bearish</button>
+                <button type="button" class="sb-bias-btn" data-bias="neutral">Neutral</button>
+                <button type="button" class="sb-bias-btn" data-bias="others">Others</button>
+              </div>
+              <div class="sb-ready-grid" id="sb-ready-grid"></div>
+            </div>
+          </div>
+
+          <div class="sb-right">
+            <div class="sb-metrics">
+              <div class="sb-metric-card">
+                <div class="sb-metric"><span>Max Profit</span><b class="sb-pos" id="sb-max-profit">—</b></div>
+                <div class="sb-metric"><span>Max Loss</span><b class="sb-neg" id="sb-max-loss">—</b></div>
+                <div class="sb-metric"><span>Breakeven</span><b id="sb-breakeven">—</b></div>
+              </div>
+              <div class="sb-metric-card">
+                <div class="sb-metric"><span>Reward / Risk</span><b id="sb-rr">—</b></div>
+                <div class="sb-metric"><span>POP</span><b id="sb-pop">—</b></div>
+                <div class="sb-metric"><span>Time Value</span><b id="sb-tv">—</b></div>
+              </div>
+              <div class="sb-metric-card">
+                <div class="sb-metric"><span>Delta</span><b id="sb-delta">—</b></div>
+                <div class="sb-metric"><span>Theta</span><b id="sb-theta">—</b></div>
+                <div class="sb-metric"><span>Vega</span><b id="sb-vega">—</b></div>
+              </div>
+            </div>
+
+            <div class="sb-panel sb-chart-panel">
+              <div class="sb-chart-tabs" id="sb-chart-tabs">
+                <button type="button" class="sb-chart-tab active" data-tab="payoff">Payoff Graph</button>
+                <button type="button" class="sb-chart-tab" data-tab="pnl">P&amp;L Table</button>
+                <button type="button" class="sb-chart-tab" data-tab="greeks">Greeks</button>
+              </div>
+              <div class="sb-chart-legend">
+                <span class="sb-leg-oi-ce">Call OI</span>
+                <span class="sb-leg-oi-pe">Put OI</span>
+                <span class="sb-leg-exp">On Expiry</span>
+                <span class="sb-leg-tgt">On Target Date</span>
+              </div>
+              <div id="sb-payoff-wrap" class="sb-tab-pane">
+                <canvas id="sb-payoff" height="340"></canvas>
+              </div>
+              <div id="sb-pnl-wrap" class="sb-tab-pane hidden">
+                <div class="sb-table-scroll">
+                  <table class="sb-pnl-table" id="sb-pnl-table">
+                    <thead>
+                      <tr><th>Underlying</th><th>P&amp;L Expiry</th><th>P&amp;L Target</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+              <div id="sb-greeks-wrap" class="sb-tab-pane hidden">
+                <table class="sb-greeks-table" id="sb-greeks-table">
+                  <thead>
+                    <tr><th>Leg</th><th>Delta</th><th>Gamma</th><th>Theta</th><th>Vega</th><th>IV</th></tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="sb-sliders">
+                <div class="sb-slider-row">
+                  <label>Target <span id="sb-target-pct">0.0%</span></label>
+                  <input type="range" id="sb-target-range" min="-8" max="8" step="0.1" value="0" />
+                  <span id="sb-target-val">—</span>
+                </div>
+                <div class="sb-slider-row">
+                  <label>Date <span id="sb-date-label">Expiry</span></label>
+                  <input type="range" id="sb-date-range" min="0" max="100" step="1" value="100" />
+                  <span id="sb-date-val">—</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div><!-- /page-option-strategy -->
+
+    <!-- ══ Page: Pair Detail Dashboard ══ -->
+    <div class="page" id="page-pair-detail">
+      <div class="pd-loading" id="pd-loading">Select a pair from the Correlation Density screener (click a row) to open its dashboard.</div>
+      <div class="pd-dash hidden" id="pd-dash">
+
+        <!-- Top bar -->
+        <div class="pd-topbar">
+          <button class="btn-secondary" id="pd-back-btn">← Back to Screener</button>
+          <span class="pd-note">Note: Past performance is not indicative of future results. This analysis is for informational purposes only.</span>
+        </div>
+
+        <!-- Header strip -->
+        <div class="pd-header card">
+          <div class="pd-title-block">
+            <div class="pd-title"><span class="pd-sym1" id="pd-sym1">—</span> <span class="pd-vs">vs</span> <span class="pd-sym2" id="pd-sym2">—</span></div>
+            <div class="pd-sub">Sector: <span id="pd-sector">—</span></div>
+            <div class="pd-sub">Interval: <span id="pd-interval">—</span> &nbsp; Period: <span id="pd-period">—</span></div>
+          </div>
+          <div class="pd-metric"><div class="pd-metric-label">Density</div><div class="pd-metric-val" id="pd-m-density">—</div><div class="pd-metric-tag" id="pd-m-density-tag"></div></div>
+          <div class="pd-metric"><div class="pd-metric-label">Z-Score</div><div class="pd-metric-val" id="pd-m-z">—</div><div class="pd-metric-tag" id="pd-m-z-tag"></div></div>
+          <div class="pd-metric"><div class="pd-metric-label">Correlation</div><div class="pd-metric-val" id="pd-m-corr">—</div><div class="pd-metric-tag" id="pd-m-corr-tag"></div></div>
+          <div class="pd-metric"><div class="pd-metric-label">Rolling Corr</div><div class="pd-metric-val" id="pd-m-rcorr">—</div><div class="pd-metric-tag" id="pd-m-rcorr-tag"></div></div>
+          <div class="pd-metric"><div class="pd-metric-label">Half Life</div><div class="pd-metric-val" id="pd-m-hl">—</div><div class="pd-metric-tag">Bars</div></div>
+          <div class="pd-gauge-block">
+            <div class="pd-metric-label">Signal Strength</div>
+            <canvas id="pd-gauge" width="150" height="88"></canvas>
+            <div class="pd-gauge-label" id="pd-gauge-label">—</div>
+          </div>
+          <div class="pd-reco-block">
+            <div class="pd-metric-label">Recommendation</div>
+            <div class="pd-reco" id="pd-reco">—</div>
+            <div class="pd-reco-sub" id="pd-reco-sub"></div>
+          </div>
+        </div>
+
+        <!-- Main grid: charts left, stats right -->
+        <div class="pd-grid">
+          <div class="pd-charts">
+            <div class="card pd-panel"><h3>1. Normalized Price Chart (Base = 100)</h3><canvas id="pd-c-norm" height="220"></canvas></div>
+            <div class="card pd-panel"><h3 id="pd-ratio-title">2. Price Ratio</h3><canvas id="pd-c-ratio" height="220"></canvas></div>
+            <div class="card pd-panel"><h3>3. Density Distribution (Ratio)</h3><canvas id="pd-c-dist" height="200"></canvas></div>
+            <div class="card pd-panel"><h3>4. Rolling Correlation</h3><canvas id="pd-c-rcorr" height="180"></canvas></div>
+            <div class="card pd-panel"><h3>5. Z-Score (Ratio)</h3><canvas id="pd-c-z" height="200"></canvas></div>
+            <div class="card pd-panel"><h3>6. Spread (Z-Score) with Signals</h3><canvas id="pd-c-sig" height="200"></canvas></div>
+          </div>
+          <div class="pd-side">
+            <div class="card pd-panel">
+              <h3>Pair Statistics</h3>
+              <table class="pd-stats" id="pd-stats"></table>
+            </div>
+            <div class="card pd-panel">
+              <h3>Signal Strength Breakdown</h3>
+              <table class="pd-breakdown" id="pd-breakdown"></table>
+              <div class="pd-total" id="pd-total"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pd-footer">
+          <span class="pd-note">Data source: 5Paisa historical API.</span>
+        </div>
+      </div>
+    </div><!-- /page-pair-detail -->
+  </main>
+</div><!-- /app-shell -->
+
+<script src="/static/js/lightweight-charts.min.js"></script>
+<script src="/static/js/socket.io.min.js"></script>
+<script src="/static/js/main.js"></script>
+<script src="/static/js/correlation_density.js"></script>
+<script src="/static/js/pair_detail.js"></script>
+<script src="/static/js/option_chain.js"></script>
+<script src="/static/js/open_interest.js"></script>
+<script src="/static/js/option_strategy.js"></script>
+</body>
+</html>
