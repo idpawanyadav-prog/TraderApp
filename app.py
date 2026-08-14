@@ -13,6 +13,7 @@ sys.path.append(libs_path)
 
 import csv
 import json
+import socket
 import time
 import uuid
 import pyotp
@@ -3238,7 +3239,28 @@ def cdc_pair_live():
 
 if __name__ == "__main__":
     socketio.start_background_task(_live_feed_worker)
-    socketio.run(app, debug=True, host="127.0.0.1", port=5000, allow_unsafe_werkzeug=True)
+    # Bind to 0.0.0.0 by default so iPhones/iPads on the same Wi-Fi network
+    # can open TraderApp from their browser. Override with env vars, e.g.
+    #   TRADERAPP_HOST=127.0.0.1 TRADERAPP_PORT=5001 ./start_server.sh
+    host = os.environ.get("TRADERAPP_HOST", "0.0.0.0")
+    try:
+        port = int(os.environ.get("TRADERAPP_PORT", "5000"))
+    except ValueError:
+        port = 5000
+    try:
+        _probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        _probe.connect(("8.8.8.8", 80))
+        lan_ip = _probe.getsockname()[0]
+        _probe.close()
+    except Exception:
+        lan_ip = "127.0.0.1"
+    print("=" * 56)
+    print("  TraderApp is running")
+    print("  Local (this computer): http://127.0.0.1:{}/".format(port))
+    if host != "127.0.0.1":
+        print("  iPhone/iPad (same Wi-Fi): http://{}:{}/".format(lan_ip, port))
+    print("=" * 56)
+    socketio.run(app, debug=True, host=host, port=port, allow_unsafe_werkzeug=True)
 else:
     socketio.start_background_task(_live_feed_worker)
 

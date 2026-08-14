@@ -2940,3 +2940,25 @@ button:hover { opacity: 0.85; }
   .gx-overview { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .gx-layout { grid-template-columns: 1fr; }
 }
+
+/* ── iOS / mobile Safari tweaks ── */
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+body {
+  -webkit-touch-callout: none;
+  overscroll-behavior-y: contain;
+}
+/* Respect the iPhone notch / home indicator */
+header, .sidebar, .app-shell, .modal {
+  padding-left: max(env(safe-area-inset-left), 12px);
+  padding-right: max(env(safe-area-inset-right), 12px);
+}
+header {
+  padding-top: max(env(safe-area-inset-top), 8px);
+}
+/* Prevent text-size jump when rotating on iOS */
+@media (orientation: landscape) and (max-height: 480px) {
+  html { -webkit-text-size-adjust: none; }
+}

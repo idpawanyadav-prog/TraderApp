@@ -1,0 +1,6 @@
+# Shell scripts must use LF line endings on every platform (bash requirement)
+*.sh text eol=lf
+
+# Windows batch files keep CRLF for cmd.exe
+*.bat text eol=crlf
+*.cmd text eol=crlf

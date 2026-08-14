@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 import threading
 from datetime import datetime, time as dtime, timedelta, timezone
 _lock = threading.Lock()
@@ -36,25 +37,33 @@ def _require_xlwings():
         import xlwings as xw  # noqa: F401
         return xw
     except Exception as e:
-        raise ExcelUnavailable(
-            "xlwings is not installed. pip install xlwings pywin32"
-        ) from e
+        if sys.platform == "win32":
+            hint = "pip install xlwings pywin32"
+        else:
+            hint = "pip install xlwings"
+        raise ExcelUnavailable("xlwings is not installed. " + hint) from e
 
 
 def _with_com(fn):
-    try:
-        import pythoncom
-    except Exception as e:
-        raise ExcelUnavailable("pywin32/pythoncom is required to talk to Excel.") from e
-    pythoncom.CoInitialize()
-    try:
-        with _lock:
-            return fn()
-    finally:
+    # Windows: Excel is driven through COM, which needs pywin32/pythoncom.
+    # macOS: xlwings talks to Excel for Mac via its own bridge (no COM),
+    # so pythoncom initialization is skipped on non-Windows platforms.
+    if sys.platform == "win32":
         try:
-            pythoncom.CoUninitialize()
-        except Exception:
-            pass
+            import pythoncom
+        except Exception as e:
+            raise ExcelUnavailable("pywin32/pythoncom is required to talk to Excel.") from e
+        pythoncom.CoInitialize()
+        try:
+            with _lock:
+                return fn()
+        finally:
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+    with _lock:
+        return fn()
 
 
 def _active_app(xw):

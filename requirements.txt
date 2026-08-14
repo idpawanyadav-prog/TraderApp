@@ -37,9 +37,10 @@ pyotp>=2.9.0,<3
 numpy>=2.2.6,<3; python_version < "3.14"
 numpy>=2.3.3,<3; python_version >= "3.14"
 
-# --- Windows console ---
+# --- Console colors (macOS/Linux/Windows) ---
 colorama>=0.4.6,<1
 
-# --- Excel COM (open workbooks) ---
+# --- Excel (xlwings works on Windows and macOS with Excel for Mac) ---
 xlwings>=0.29.0,<1
+# pywin32 (Excel COM) is Windows-only
 pywin32>=306; sys_platform == "win32"
