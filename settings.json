@@ -159,7 +159,7 @@
     "OP"
   ],
   "save_to_datafeed": false,
-  "5paisa_enabled": true,
+  "5paisa_enabled": false,
   "oc_price_fields": [
     {
       "key": "oi",
@@ -427,7 +427,7 @@
       }
     ]
   },
-  "excel_enabled": false,
+  "excel_enabled": true,
   "excel_configs": [
     {
       "id": "3c941c37-1be1-4085-ac86-79cb49c19fc3",
