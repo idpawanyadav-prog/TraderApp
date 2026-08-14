@@ -80,8 +80,8 @@ class ScanManager(object):
         self._cancel.set()
         return True
 
-    def start(self, access_token, resolver, sectors, params):
-        # type: (str, Callable, Dict[str, List[str]], ScanParams) -> bool
+    def start(self, access_token, resolver, sectors, params, fetcher=None):
+        # type: (str, Callable, Dict[str, List[str]], ScanParams, Optional[Callable]) -> bool
         """Kick off a scan in a background thread. False if one is running."""
         with self._lock:
             if self._state["running"]:
@@ -92,7 +92,7 @@ class ScanManager(object):
             self._state["started_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self._cancel.clear()
         self._thread = threading.Thread(
-            target=self._run, args=(access_token, resolver, sectors, params),
+            target=self._run, args=(access_token, resolver, sectors, params, fetcher),
             daemon=True, name="cdc-scan",
         )
         self._thread.start()
@@ -104,7 +104,7 @@ class ScanManager(object):
         with self._lock:
             self._state.update(kw)
 
-    def _run(self, access_token, resolver, sectors, params):
+    def _run(self, access_token, resolver, sectors, params, fetcher=None):
         try:
             pairs = generate_pairs(sectors, params.sector)
             symbols = sorted({s for _, a, b in pairs for s in (a, b)})
@@ -118,7 +118,7 @@ class ScanManager(object):
                       message="Downloading {} symbols...".format(len(symbols)))
 
             cache = PriceCache(access_token, resolver, params.interval,
-                               params.from_date, params.to_date)
+                               params.from_date, params.to_date, fetcher=fetcher)
 
             def fetch_progress(done, total):
                 # Fetch phase occupies 0-50% of the progress bar

@@ -126,6 +126,7 @@ INTERVAL_MAP = {
     "5":  "5m",
     "15": "15m",
     "25": "30m",   # nearest available
+    "30": "30m",
     "60": "60m",
     "D":  "1d",
 }
@@ -444,12 +445,28 @@ def market_feed(user_key, client_code, access_token, instruments):
                 "volume": _to_float(row.get("Volume") or row.get("TotalQty")),
                 "oi": _to_float(row.get("OpenInterest") or row.get("OI")),
                 "oi_chg_day": _to_float(
-                    row.get("ChangeInOI") or row.get("OIChange") or row.get("ChgInOI")
+                    row.get("ChangeInOpenInterest")
+                    or row.get("ChangeInOI")
+                    or row.get("OIChange")
+                    or row.get("ChgInOI")
+                    or row.get("OIChg")
+                    or row.get("ChangeinOpenInterest")
+                ),
+                "prev_oi": _to_float(
+                    row.get("PreviousOpenInterest")
+                    or row.get("PrevOpenInterest")
+                    or row.get("PreviousOI")
+                    or row.get("PrevOI")
+                    or row.get("POI")
                 ),
                 "bid_qty": _to_float(row.get("BuyQuantity") or row.get("TotalBuyQuantity")),
                 "ask_qty": _to_float(row.get("SellQuantity") or row.get("TotalSellQuantity")),
                 "avg_price": _to_float(row.get("AverageTradePrice")),
             }
+            prev_oi = out[token]["prev_oi"]
+            oi = out[token]["oi"]
+            if out[token]["oi_chg_day"] is None and oi is not None and prev_oi is not None:
+                out[token]["oi_chg_day"] = oi - prev_oi
     return out
 
 

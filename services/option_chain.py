@@ -6,18 +6,22 @@ and live Option Greeks (NSE WebSocket). Falls back to Black-Scholes Greeks
 when the live feed is empty (e.g. after market hours).
 """
 import csv
+import json
 import math
 import os
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import fivepaisa as fp
 
 _APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTRUMENT_CSV = os.path.join(_APP_ROOT, "Instrument.csv")
+_OI_CACHE_PATH = os.path.join(_APP_ROOT, "oi_prev_close.json")
+_IST = timezone(timedelta(hours=5, minutes=30))
 
-# Remember last OI per scrip so refresh can show OI change
-_PREV_OI = {}
+# Last known OI per scrip so we can compute today's change vs previous close.
+# {scrip_code: {"d": "YYYY-MM-DD", "base": prev_close_oi, "oi": last_oi}}
+_OI_STATE = None
 
 __all__ = [
     "list_underlyings",
@@ -33,6 +37,72 @@ def _safe_float(v, default=None):
         return float(v)
     except (TypeError, ValueError):
         return default
+
+
+def _ist_today():
+    return datetime.now(_IST).strftime("%Y-%m-%d")
+
+
+def _load_oi_state():
+    global _OI_STATE
+    if _OI_STATE is not None:
+        return _OI_STATE
+    _OI_STATE = {}
+    try:
+        with open(_OI_CACHE_PATH, encoding="utf-8") as f:
+            raw = json.load(f) or {}
+        if isinstance(raw, dict):
+            _OI_STATE = raw
+    except Exception:
+        _OI_STATE = {}
+    return _OI_STATE
+
+
+def _save_oi_state():
+    if _OI_STATE is None:
+        return
+    try:
+        with open(_OI_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(_OI_STATE, f)
+    except Exception:
+        pass
+
+
+def _day_oi_change(code, oi, api_chg, prev_oi=None):
+    """Today's OI change vs previous close, not vs last refresh."""
+    today = _ist_today()
+    st = _load_oi_state()
+    rec = st.get(str(code)) or {}
+    rec_d = rec.get("d")
+    last = rec.get("oi")
+    base = rec.get("base")
+
+    if rec_d != today:
+        if rec_d and last is not None:
+            base = last
+        elif prev_oi is not None:
+            base = prev_oi
+        elif api_chg is not None and oi is not None:
+            base = oi - api_chg
+        else:
+            base = oi
+        rec = {"d": today, "base": base, "oi": oi}
+    else:
+        if base is None:
+            if prev_oi is not None:
+                base = prev_oi
+            elif api_chg is not None and oi is not None:
+                base = oi - api_chg
+            else:
+                base = last if last is not None else oi
+        rec = {"d": today, "base": base, "oi": oi if oi is not None else last}
+    st[str(code)] = rec
+
+    if api_chg is not None:
+        return api_chg
+    if oi is None or rec.get("base") is None:
+        return None
+    return oi - rec["base"]
 
 
 def list_underlyings(limit=80):
@@ -263,6 +333,7 @@ def _empty_side():
         "scrip_code": "",
         "ltp": None, "open": None, "high": None, "low": None, "prev_close": None,
         "chg": None, "chg_pct": None, "volume": None, "oi": None, "oi_chg": None,
+        "oi_chg_day": None,
         "bid_qty": None, "ask_qty": None, "avg_price": None,
         "lot_size": 1,
         "greeks_source": "",
@@ -302,14 +373,14 @@ def _merge_side(contract, quote, greek, spot, strike, t, opt_type):
         side["chg_pct"] = quote.get("chg_pct")
         side["volume"] = quote.get("volume")
         side["oi"] = quote.get("oi")
+        side["oi_chg_day"] = quote.get("oi_chg_day")
         side["bid_qty"] = quote.get("bid_qty")
         side["ask_qty"] = quote.get("ask_qty")
         side["avg_price"] = quote.get("avg_price")
-        prev = _PREV_OI.get(code)
-        if side["oi"] is not None and prev is not None:
-            side["oi_chg"] = side["oi"] - prev
-        if side["oi"] is not None:
-            _PREV_OI[code] = side["oi"]
+        if side["oi"] is not None or side["oi_chg_day"] is not None:
+            side["oi_chg"] = _day_oi_change(
+                code, side["oi"], side["oi_chg_day"], quote.get("prev_oi"),
+            )
 
     if greek and any(greek.get(k) is not None for k in ("iv", "delta", "theta", "vega", "gamma")):
         _apply_greeks(side, greek, "live")
@@ -347,8 +418,15 @@ def build_option_chain(user_key, client_code, access_token, symbol, expiry,
             uq = fp.market_feed(user_key, client_code, access_token, [underlying])
             q = uq.get(str(underlying["scrip_code"])) or {}
             spot = q.get("ltp") or q.get("prev_close")
+            spot_chg = q.get("chg")
+            spot_chg_pct = q.get("chg_pct")
         except Exception:
             spot = None
+            spot_chg = None
+            spot_chg_pct = None
+    else:
+        spot_chg = None
+        spot_chg_pct = None
     if spot is None:
         spot = rows[len(rows) // 2]["strike"]
 
@@ -418,11 +496,14 @@ def build_option_chain(user_key, client_code, access_token, symbol, expiry,
     ):
         greeks_source = "bs"
 
+    _save_oi_state()
     return {
         "symbol": symbol,
         "expiry": expiry,
         "exch": exch,
         "spot": spot,
+        "spot_chg": spot_chg,
+        "spot_chg_pct": spot_chg_pct,
         "underlying": underlying,
         "strike_count": len(chain),
         "greeks_source": greeks_source,

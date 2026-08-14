@@ -1,0 +1,36 @@
+{
+  "1": {
+    "enabled": true,
+    "input": "Price",
+    "model": "Savitzky-Golay",
+    "params": {
+      "window": 11,
+      "polyorder": 3
+    }
+  },
+  "2": {
+    "enabled": true,
+    "input": "AC_CE1",
+    "model": "Gaussian Kernel",
+    "params": {
+      "bandwidth": 3.0
+    }
+  },
+  "3": {
+    "enabled": true,
+    "input": "AC_CE2",
+    "model": "Kernel Poly",
+    "params": {
+      "degree": 2,
+      "bandwidth": 100
+    }
+  },
+  "4": {
+    "enabled": true,
+    "input": "AC_CE3",
+    "model": "Gaussian Kernel",
+    "params": {
+      "bandwidth": 3.0
+    }
+  }
+}

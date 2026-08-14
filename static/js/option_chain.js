@@ -9,6 +9,7 @@
   var PRICE_COL_META = {
     oi: { key: "oi", label: "OI", dp: 0 },
     oi_chg: { key: "oi_chg", label: "OI Chg", dp: 0 },
+    interp: { key: "interp", label: "Int.", interp: true },
     volume: { key: "volume", label: "Volume", dp: 0 },
     chg: { key: "chg", label: "Chg", dp: 2 },
     chg_pct: { key: "chg_pct", label: "Chg%", dp: 2, pct: true },
@@ -32,7 +33,7 @@
     veta: { key: "veta", label: "Veta", dp: 4 },
   };
 
-  var DEFAULT_PRICE_ORDER = ["oi", "oi_chg", "volume", "chg", "chg_pct", "ltp"];
+  var DEFAULT_PRICE_ORDER = ["oi", "oi_chg", "interp", "volume", "chg", "chg_pct", "ltp"];
   var DEFAULT_GREEKS_ORDER = [
     "iv", "delta", "gamma", "theta", "vega", "rho", "vanna", "charm",
     "volga", "iv_vwap", "speed", "zomma", "color", "veta",
@@ -102,7 +103,11 @@
     return n.toFixed(1) + "%";
   }
 
-  function cellValue(side, col) {
+  function cellValue(side, col, kind) {
+    if (col.interp) {
+      var info = interpOf(side, kind);
+      return info ? info.abbr : "—";
+    }
     var v = side[col.key];
     if (col.iv) return fmtIv(v);
     if (col.pct) {
@@ -114,10 +119,67 @@
     return fmt(v, col.dp);
   }
 
+  function oiDelta(side) {
+    var v = side.oi_chg_day;
+    if (v === null || v === undefined || v === "") v = side.oi_chg;
+    var n = Number(v);
+    return isNaN(n) ? null : n;
+  }
+
+  /* Market direction from underlying move + that side's OI (puts inverted).
+     Calls: Spot↑ OI↑ Long Call Buildup (bull); Spot↓ OI↑ Call Writing (bear);
+            Spot↓ OI↓ Long Call Unwinding (bear); Spot↑ OI↓ Call Short Covering (bull)
+     Puts:  Spot↓ OI↑ Long Put Buildup (bear); Spot↑ OI↑ Put Writing (bull);
+            Spot↑ OI↓ Long Put Unwinding (bull); Spot↓ OI↓ Put Short Covering (bear) */
+  function interpOf(side, kind) {
+    var spotChg = _lastData ? Number(_lastData.spot_chg) : NaN;
+    var oi = oiDelta(side);
+    if (isNaN(spotChg) || oi === null || spotChg === 0 || oi === 0) return null;
+    var isPe = kind === "pe";
+    var px = isPe ? -spotChg : spotChg;
+    if (px > 0 && oi > 0) {
+      return isPe
+        ? { abbr: "L.B.", cls: "oc-interp-bear", title: "Long Put Buildup · bearish" }
+        : { abbr: "L.B.", cls: "oc-interp-bull", title: "Long Call Buildup · bullish" };
+    }
+    if (px < 0 && oi > 0) {
+      return isPe
+        ? { abbr: "S.W.", cls: "oc-interp-bull", title: "Put Writing · bullish" }
+        : { abbr: "S.W.", cls: "oc-interp-bear", title: "Call Writing · bearish" };
+    }
+    if (px < 0 && oi < 0) {
+      return isPe
+        ? { abbr: "L.U.", cls: "oc-interp-bull", title: "Long Put Unwinding · bullish" }
+        : { abbr: "L.U.", cls: "oc-interp-bear", title: "Long Call Unwinding · bearish" };
+    }
+    if (px > 0 && oi < 0) {
+      return isPe
+        ? { abbr: "S.C.", cls: "oc-interp-bear", title: "Put Short Covering · bearish" }
+        : { abbr: "S.C.", cls: "oc-interp-bull", title: "Call Short Covering · bullish" };
+    }
+    return null;
+  }
+
   function chgClass(v) {
     var n = Number(v);
     if (isNaN(n) || n === 0) return "";
     return n > 0 ? " oc-up" : " oc-down";
+  }
+
+  function cellAttrs(side, col, kind) {
+    var extra = "";
+    var title = "";
+    if (col.key === "chg" || col.key === "chg_pct" || col.key === "oi_chg") extra = chgClass(side[col.key]);
+    if (col.ltp) extra += " oc-ltp";
+    if (col.interp) {
+      extra += " oc-interp";
+      var info = interpOf(side, kind);
+      if (info) {
+        extra += " " + info.cls;
+        title = " title=\"" + info.title + "\"";
+      }
+    }
+    return " class=\"" + extra.trim() + "\"" + title;
   }
 
   function currentCols() {
@@ -157,16 +219,10 @@
       var pe = r.pe || {};
       var cls = r.atm ? " class=\"oc-atm\"" : "";
       var ceCells = cols.map(function (c) {
-        var extra = "";
-        if (c.key === "chg" || c.key === "chg_pct" || c.key === "oi_chg") extra = chgClass(ce[c.key]);
-        if (c.ltp) extra += " oc-ltp";
-        return "<td class=\"" + extra.trim() + "\">" + cellValue(ce, c) + "</td>";
+        return "<td" + cellAttrs(ce, c, "ce") + ">" + cellValue(ce, c, "ce") + "</td>";
       }).join("");
       var peCells = cols.slice().reverse().map(function (c) {
-        var extra = "";
-        if (c.key === "chg" || c.key === "chg_pct" || c.key === "oi_chg") extra = chgClass(pe[c.key]);
-        if (c.ltp) extra += " oc-ltp";
-        return "<td class=\"" + extra.trim() + "\">" + cellValue(pe, c) + "</td>";
+        return "<td" + cellAttrs(pe, c, "pe") + ">" + cellValue(pe, c, "pe") + "</td>";
       }).join("");
       return "<tr" + cls + ">" +
         ceCells +
@@ -175,7 +231,11 @@
         "</tr>";
     }).join("");
 
-    el("oc-spot-label").textContent = "Spot: " + fmt(data.spot, 2) + " · " + (data.symbol || "");
+    el("oc-spot-label").textContent = "Spot: " + fmt(data.spot, 2) +
+      (data.spot_chg != null && data.spot_chg !== ""
+        ? " (" + (Number(data.spot_chg) >= 0 ? "+" : "") + fmt(data.spot_chg, 2) + ")"
+        : "") +
+      " · " + (data.symbol || "");
     var src = data.greeks_source || "—";
     if (src === "live") src = "Live (5Paisa WS)";
     else if (src === "bs") src = "Black–Scholes (from LTP)";
@@ -301,6 +361,8 @@
     document.querySelectorAll(".oc-view-btn").forEach(function (b) {
       b.classList.toggle("active", b.dataset.view === _view);
     });
+    var legend = el("oc-interp-legend");
+    if (legend) legend.classList.toggle("hidden", _view !== "price");
     if (_lastData) renderChain(_lastData);
     else renderHead();
   }

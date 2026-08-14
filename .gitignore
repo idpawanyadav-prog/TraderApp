@@ -14,6 +14,7 @@ __pycache__/
 
 # Secrets and local credentials
 cred.json
+.flask_secret
 *.env
 .env
 .env.*
@@ -25,3 +26,9 @@ cred.json
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Local OI previous-close cache
+oi_prev_close.json
+
+# Scratch/test files (locked by Excel when open)
+Testing.xlsx

@@ -45,14 +45,15 @@ class PriceCache(object):
     """
 
     def __init__(self, access_token, resolver, interval, from_date, to_date,
-                 max_workers=8):
-        # type: (str, Callable[[str], Optional[dict]], str, str, str, int) -> None
+                 max_workers=8, fetcher=None):
+        # type: (str, Callable[[str], Optional[dict]], str, str, str, int, Optional[Callable]) -> None
         self._token = access_token
         self._resolve = resolver
         self._interval = interval
         self._from = from_date
         self._to = to_date
         self._max_workers = max_workers
+        self._fetcher = fetcher
         self._lock = threading.Lock()
         self._data = {}    # type: Dict[str, dict]
         self._errors = {}  # type: Dict[str, str]
@@ -65,13 +66,16 @@ class PriceCache(object):
             inst = self._resolve(symbol)
             if not inst:
                 raise ValueError("symbol not found in scrip master")
-            candles = fp.get_historical_data(
-                self._token, inst["exch"], inst["exch_type"],
-                inst["scrip_code"], self._interval, self._from, self._to,
-                symbol=inst.get("trading_symbol") or symbol,
-                timeout=60,
-                **self._df_opts,
-            )
+            if self._fetcher:
+                candles = self._fetcher(inst)
+            else:
+                candles = fp.get_historical_data(
+                    self._token, inst["exch"], inst["exch_type"],
+                    inst["scrip_code"], self._interval, self._from, self._to,
+                    symbol=inst.get("trading_symbol") or symbol,
+                    timeout=60,
+                    **self._df_opts,
+                )
             times = np.array([c["time"] for c in candles
                               if isinstance(c["time"], int)], dtype=np.int64)
             closes = np.array([c["close"] for c in candles

@@ -13,6 +13,9 @@
     underlyings: [],
     loading: false,
     timer: null,
+    hoverIdx: -1,
+    appliedExpiries: [],
+    layout: null,
   };
 
   function showPageActive() {
@@ -110,6 +113,112 @@
     return (v && v.trim()) || fallback;
   }
 
+  function selectedExpiryLabels(dates) {
+    var p = state.payload;
+    var map = {};
+    ((p && p.expiries) || []).forEach(function (e) { map[e.date] = e.label; });
+    return (dates || []).map(function (d) { return map[d] || d; }).filter(Boolean);
+  }
+
+  function updateExpiryHeader() {
+    var node = el("oi-chart-expiries");
+    if (!node) return;
+    var dates = state.appliedExpiries.length ? state.appliedExpiries : selectedExpiries();
+    var labels = selectedExpiryLabels(dates);
+    node.textContent = labels.length ? labels.join(", ") : "";
+    node.title = labels.join(", ");
+  }
+
+  function buildSeries() {
+    var p = state.payload;
+    if (!p) return [];
+    var rows = filteredStrikes(p);
+    var from = idxClamped(p, state.fromIdx);
+    var to = idxClamped(p, state.toIdx);
+    if (from > to) { var tmp = from; from = to; to = tmp; }
+    var absMode = state.view === "oi";
+    return rows.map(function (r) {
+      var ce0 = (r.call_oi || [])[from] || 0;
+      var pe0 = (r.put_oi || [])[from] || 0;
+      var ce1 = (r.call_oi || [])[to] || 0;
+      var pe1 = (r.put_oi || [])[to] || 0;
+      return {
+        strike: r.strike,
+        call: absMode ? ce1 : (ce1 - ce0),
+        put: absMode ? pe1 : (pe1 - pe0),
+        callOi: ce1,
+        putOi: pe1,
+      };
+    });
+  }
+
+  function hideTooltip() {
+    var tip = el("oi-tooltip");
+    if (tip) tip.classList.add("hidden");
+    if (state.hoverIdx !== -1) {
+      state.hoverIdx = -1;
+      drawChart();
+    }
+  }
+
+  function showTooltip(evt, idx) {
+    var tip = el("oi-tooltip");
+    var wrap = el("oi-chart-wrap");
+    var series = (state.layout && state.layout.series) || [];
+    var s = series[idx];
+    if (!tip || !wrap || !s) return;
+    var absMode = state.view === "oi";
+    var callLabel = absMode ? "Call OI" : "Call OI chg";
+    var putLabel = absMode ? "Put OI" : "Put OI chg";
+    var html = '<div class="oi-tip-strike">' + s.strike + "</div>" +
+      '<div class="oi-tip-row oi-tip-call"><span>' + callLabel + "</span><b>" +
+      (absMode ? fmtCompact(s.call) : fmtSigned(s.call)) + "</b></div>" +
+      '<div class="oi-tip-row oi-tip-put"><span>' + putLabel + "</span><b>" +
+      (absMode ? fmtCompact(s.put) : fmtSigned(s.put)) + "</b></div>";
+    if (state.showOi && !absMode) {
+      html += '<div class="oi-tip-row oi-tip-call"><span>Call OI</span><b>' + fmtCompact(s.callOi) + "</b></div>" +
+        '<div class="oi-tip-row oi-tip-put"><span>Put OI</span><b>' + fmtCompact(s.putOi) + "</b></div>";
+    }
+    tip.innerHTML = html;
+    tip.classList.remove("hidden");
+    var rect = wrap.getBoundingClientRect();
+    var x = evt.clientX - rect.left + 12;
+    var y = evt.clientY - rect.top + 12;
+    var tw = tip.offsetWidth || 160;
+    var th = tip.offsetHeight || 70;
+    if (x + tw > rect.width - 8) x = evt.clientX - rect.left - tw - 12;
+    if (y + th > rect.height - 8) y = evt.clientY - rect.top - th - 8;
+    if (x < 8) x = 8;
+    if (y < 8) y = 8;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+  }
+
+  function hitBarIndex(evt) {
+    var layout = state.layout;
+    var canvas = el("oi-chart");
+    if (!layout || !canvas || !layout.series.length) return -1;
+    var rect = canvas.getBoundingClientRect();
+    var x = evt.clientX - rect.left;
+    if (x < layout.padL || x > layout.padL + layout.plotW) return -1;
+    var i = Math.floor((x - layout.padL) / layout.slot);
+    if (i < 0 || i >= layout.series.length) return -1;
+    return i;
+  }
+
+  function onChartMove(evt) {
+    var idx = hitBarIndex(evt);
+    if (idx < 0) {
+      hideTooltip();
+      return;
+    }
+    if (idx !== state.hoverIdx) {
+      state.hoverIdx = idx;
+      drawChart();
+    }
+    showTooltip(evt, idx);
+  }
+
   function drawChart() {
     var canvas = el("oi-chart");
     var empty = el("oi-chart-empty");
@@ -128,25 +237,8 @@
     ctx.clearRect(0, 0, w, h);
 
     if (!p) return;
-    var rows = filteredStrikes(p);
-    var from = idxClamped(p, state.fromIdx);
-    var to = idxClamped(p, state.toIdx);
-    if (from > to) { var tmp = from; from = to; to = tmp; }
-
+    var series = buildSeries();
     var absMode = state.view === "oi";
-    var series = rows.map(function (r) {
-      var ce0 = (r.call_oi || [])[from] || 0;
-      var pe0 = (r.put_oi || [])[from] || 0;
-      var ce1 = (r.call_oi || [])[to] || 0;
-      var pe1 = (r.put_oi || [])[to] || 0;
-      return {
-        strike: r.strike,
-        call: absMode ? ce1 : (ce1 - ce0),
-        put: absMode ? pe1 : (pe1 - pe0),
-        callOi: ce1,
-        putOi: pe1,
-      };
-    });
 
     var padL = 58, padR = 16, padT = 28, padB = 42;
     var plotW = w - padL - padR;
@@ -193,12 +285,20 @@
     });
 
     var n = series.length;
-    if (!n) return;
+    if (!n) {
+      state.layout = { series: [], padL: padL, plotW: plotW, slot: 1 };
+      return;
+    }
     var slot = plotW / n;
     var barW = Math.max(2, Math.min(14, slot * 0.32));
+    state.layout = { series: series, padL: padL, plotW: plotW, slot: slot };
 
     series.forEach(function (s, i) {
       var cx = padL + slot * i + slot / 2;
+      if (i === state.hoverIdx) {
+        ctx.fillStyle = "rgba(88, 166, 255, 0.10)";
+        ctx.fillRect(padL + slot * i, padT, slot, plotH);
+      }
       if (state.showOi && !absMode) {
         ctx.globalAlpha = 0.18;
         ctx.fillStyle = callC;
@@ -282,6 +382,7 @@
     el("oi-chart-title").textContent = absMode
       ? "Open Interest vs Strike"
       : ("OI Change on " + (p.session_label || ""));
+    updateExpiryHeader();
     el("oi-pcr-badge").textContent = "PCR " + (p.pcr != null ? p.pcr : "—");
     el("oi-vix-badge").textContent = "INDIAVIX " + (p.india_vix != null ? fmtNum(p.india_vix, 1) : "—");
     el("oi-src-badge").textContent = "Data: " + (p.source === "live" ? "Live" : "Sample");
@@ -293,7 +394,10 @@
     var box = el("oi-expiry-list");
     if (!box) return;
     var selected = {};
-    (payload.selected_expiries || []).forEach(function (d) { selected[d] = true; });
+    var dates = state.appliedExpiries.length
+      ? state.appliedExpiries
+      : (payload.selected_expiries || []);
+    dates.forEach(function (d) { selected[d] = true; });
     box.innerHTML = (payload.expiries || []).map(function (e) {
       var days = "";
       try {
@@ -326,13 +430,42 @@
     if (built) renderChart();
   }
 
-  async function loadOi(silent) {
-    if (state.loading) return;
+  function setRefreshing(on) {
+    var btns = [el("oi-refresh-btn"), el("oi-refresh-filters-btn")];
+    btns.forEach(function (b) {
+      if (!b) return;
+      if (on) {
+        if (!b.dataset.label || b.textContent !== "Refreshing…") {
+          b.dataset.label = b.textContent === "Refreshing…" ? "Refresh" : b.textContent;
+        }
+        b.disabled = true;
+        b.textContent = "Refreshing…";
+      } else {
+        b.disabled = false;
+        b.textContent = b.dataset.label || "Refresh";
+      }
+    });
+  }
+
+  async function loadOi(silent, opts) {
+    opts = opts || {};
+    if (silent && state.loading) return;
+    var token = {};
+    state.loadToken = token;
     state.loading = true;
+    if (!silent) setRefreshing(true);
     try {
+      var expiries;
+      if (opts.resetExpiries) {
+        expiries = [];
+      } else if (silent && state.appliedExpiries.length) {
+        expiries = state.appliedExpiries;
+      } else {
+        expiries = selectedExpiries();
+      }
       var body = {
         symbol: state.symbol,
-        expiries: selectedExpiries(),
+        expiries: expiries,
       };
       if (el("oi-range-mode") && document.querySelector("#oi-range-mode .oi-seg-btn.active") &&
           document.querySelector("#oi-range-mode .oi-seg-btn.active").dataset.mode === "custom") {
@@ -345,6 +478,7 @@
         body: JSON.stringify(body),
       });
       var data = await res.json();
+      if (state.loadToken !== token) return;
       if (!data.success) throw new Error(data.message || "Failed to load OI");
       var keepPreset = state.preset;
       var keepFrom = state.fromIdx;
@@ -354,7 +488,10 @@
       var last = (data.times || []).length - 1;
       el("oi-slider-from").max = String(Math.max(0, last));
       el("oi-slider-to").max = String(Math.max(0, last));
-      if (!had || !silent) {
+      if (!had || !silent || opts.resetExpiries) {
+        state.appliedExpiries = opts.resetExpiries
+          ? (data.selected_expiries || [])
+          : (selectedExpiries().length ? selectedExpiries() : (data.selected_expiries || []));
         renderExpiries(data);
         applyPreset(keepPreset || "full");
       } else {
@@ -367,12 +504,31 @@
       var search = el("oi-symbol-search");
       if (search && !search.value) search.value = data.symbol;
     } catch (e) {
+      if (state.loadToken !== token) return;
       if (!silent) {
         el("oi-src-badge").textContent = "Error: " + e.message;
       }
     } finally {
+      if (state.loadToken !== token) return;
       state.loading = false;
+      if (!silent) setRefreshing(false);
     }
+  }
+
+  function changeSymbol(sym) {
+    if (!sym) return;
+    state.symbol = sym;
+    state.appliedExpiries = [];
+    var list = el("oi-expiry-list");
+    if (list) list.innerHTML = "";
+    var expHead = el("oi-chart-expiries");
+    if (expHead) expHead.textContent = "";
+    var search = el("oi-symbol-search");
+    if (search) search.value = sym;
+    var dd = el("oi-symbol-dd");
+    if (dd) dd.classList.add("hidden");
+    setRefreshing(true);
+    loadOi(false, { resetExpiries: true });
   }
 
   async function loadUnderlyings() {
@@ -430,6 +586,11 @@
     el("oi-how-btn").addEventListener("click", function () {
       el("oi-howto").classList.toggle("hidden");
     });
+    function refreshOi() { loadOi(false); }
+    el("oi-refresh-btn").addEventListener("click", refreshOi);
+    if (el("oi-refresh-filters-btn")) {
+      el("oi-refresh-filters-btn").addEventListener("click", refreshOi);
+    }
     el("oi-show-oi").addEventListener("change", function () {
       state.showOi = el("oi-show-oi").checked;
       renderChart();
@@ -483,7 +644,9 @@
     });
     el("oi-custom-date").addEventListener("change", function () { loadOi(false); });
 
-    el("oi-expiry-list").addEventListener("change", function () { loadOi(false); });
+    var canvas = el("oi-chart");
+    canvas.addEventListener("mousemove", onChartMove);
+    canvas.addEventListener("mouseleave", hideTooltip);
 
     var search = el("oi-symbol-search");
     search.addEventListener("focus", function () { renderSymbolDd(search.value); });
@@ -492,21 +655,13 @@
       if (e.key === "Enter") {
         var first = el("oi-symbol-dd").querySelector("li");
         var sym = (first && first.dataset.sym) || search.value.trim().toUpperCase();
-        if (sym) {
-          state.symbol = sym;
-          search.value = sym;
-          el("oi-symbol-dd").classList.add("hidden");
-          loadOi(false);
-        }
+        if (sym) changeSymbol(sym);
       }
     });
     el("oi-symbol-dd").addEventListener("click", function (e) {
       var li = e.target.closest("li");
       if (!li) return;
-      state.symbol = li.dataset.sym;
-      search.value = state.symbol;
-      el("oi-symbol-dd").classList.add("hidden");
-      loadOi(false);
+      changeSymbol(li.dataset.sym);
     });
     document.addEventListener("click", function (e) {
       if (!e.target.closest(".oi-search-group")) {
@@ -517,6 +672,9 @@
     window.addEventListener("resize", function () {
       if (showPageActive()) drawChart();
     });
+    window._openInterestApplyTheme = function () {
+      if (showPageActive()) drawChart();
+    };
 
     document.querySelectorAll(".nav-item[data-page]").forEach(function (link) {
       link.addEventListener("click", function () {

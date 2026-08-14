@@ -3,6 +3,10 @@
 
   var el = function (id) { return document.getElementById(id); };
   var _detail = null;
+  var _liveTimer = null;
+  var _liveData = null;
+  var _hedgeFront = [];
+  var _hedgeIdx = -1;
 
   // Theme-aware palette for canvas drawing
   function pal() {
@@ -21,18 +25,20 @@
     };
   }
 
-  // ── Tiny canvas line-chart helper ────────────────────────────
+  // Size the bitmap to the CSS box (wrapper) at the current DPI so plots
+  // stay aligned when the window, sidebar, or display scaling changes.
   function sizeCanvas(cv) {
     var dpr = window.devicePixelRatio || 1;
-    var w = cv.parentElement.clientWidth - 8;
-    var hAttr = parseInt(cv.getAttribute("height")) || 200;
-    cv.style.width = w + "px";
-    cv.style.height = hAttr + "px";
-    cv.width = Math.round(w * dpr);
-    cv.height = Math.round(hAttr * dpr);
+    var box = cv.parentElement || cv;
+    var w = Math.max(0, Math.floor(box.clientWidth));
+    var h = Math.max(0, Math.floor(box.clientHeight));
+    if (w < 40 || h < 40) return null;
+    var bw = Math.round(w * dpr), bh = Math.round(h * dpr);
+    if (cv.width !== bw) cv.width = bw;
+    if (cv.height !== bh) cv.height = bh;
     var ctx = cv.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    return { ctx: ctx, w: w, h: hAttr };
+    return { ctx: ctx, w: w, h: h };
   }
 
   function fmtDate(ts) {
@@ -46,10 +52,14 @@
     opts = opts || {};
     var cv = el(cvId);
     if (!cv) return;
-    var s = sizeCanvas(cv), ctx = s.ctx, W = s.w, H = s.h;
+    var s = sizeCanvas(cv);
+    if (!s) return;
+    var ctx = s.ctx, W = s.w, H = s.h;
     var P = pal();
-    var padL = 46, padR = opts.padR || 54, padT = 10, padB = 22;
-    var pw = W - padL - padR, ph = H - padT - padB;
+    var padL = W < 360 ? 36 : 46;
+    var padR = opts.padR || (W < 360 ? 44 : 54);
+    var padT = 10, padB = H < 170 ? 18 : 22;
+    var pw = Math.max(20, W - padL - padR), ph = Math.max(20, H - padT - padB);
     ctx.clearRect(0, 0, W, H);
 
     // y-extent over all series + hlines
@@ -71,21 +81,25 @@
     var X = function (i) { return padL + pw * (times.length <= 1 ? 0 : i / (times.length - 1)); };
     var Y = function (v) { return padT + ph * (1 - (v - lo) / span); };
 
-    // grid + y labels
+    // grid + y labels (drop ticks if the plot is too short to fit them)
     ctx.strokeStyle = P.grid; ctx.fillStyle = P.text;
-    ctx.font = "10px 'Segoe UI', sans-serif"; ctx.lineWidth = 1;
-    var ticks = 4;
+    ctx.font = (W < 360 ? "9px" : "10px") + " 'Segoe UI', sans-serif"; ctx.lineWidth = 1;
+    var ticks = ph < 90 ? 2 : ph < 140 ? 3 : 4;
+    var lastLabelY = -999;
     for (var g = 0; g <= ticks; g++) {
       var yv = lo + span * g / ticks, yy = Y(yv);
       ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(W - padR, yy); ctx.stroke();
+      if (Math.abs(yy - lastLabelY) < 12) continue;
+      lastLabelY = yy;
       ctx.textAlign = "right";
       ctx.fillText(yv.toFixed(opts.dp !== undefined ? opts.dp : 2), padL - 5, yy + 3);
     }
-    // x labels (~6)
+    // x labels (~4–6 depending on width)
     ctx.textAlign = "center";
-    var step = Math.max(1, Math.floor(times.length / 6));
+    var nX = W < 400 ? 4 : 6;
+    var step = Math.max(1, Math.floor(times.length / nX));
     for (var i = 0; i < times.length; i += step) {
-      ctx.fillText(fmtDate(times[i]), X(i), H - 6);
+      ctx.fillText(fmtDate(times[i]), X(i), H - 5);
     }
 
     // hlines
@@ -150,14 +164,18 @@
   function drawDistribution(d) {
     var cv = el("pd-c-dist");
     if (!cv || !d || !d.x) return;
-    var s = sizeCanvas(cv), ctx = s.ctx, W = s.w, H = s.h;
+    var s = sizeCanvas(cv);
+    if (!s) return;
+    var ctx = s.ctx, W = s.w, H = s.h;
     var P = pal();
-    var padL = 34, padR = 14, padT = 26, padB = 22;
-    var pw = W - padL - padR, ph = H - padT - padB;
+    var padL = 10, padR = 10, padT = 28, padB = 22;
+    var pw = Math.max(20, W - padL - padR), ph = Math.max(20, H - padT - padB);
     ctx.clearRect(0, 0, W, H);
     var xs = d.x, pdf = d.pdf;
     var xmin = xs[0], xmax = xs[xs.length - 1];
+    if (!isFinite(xmin) || !isFinite(xmax) || xmax === xmin) xmax = xmin + 1e-6;
     var pmax = Math.max.apply(null, pdf);
+    if (!isFinite(pmax) || pmax <= 0) pmax = 1;
     var X = function (x) { return padL + pw * (x - xmin) / (xmax - xmin); };
     var Y = function (p) { return padT + ph * (1 - p / (pmax * 1.08)); };
 
@@ -196,11 +214,14 @@
     ctx.strokeStyle = P.red;
     ctx.beginPath(); ctx.moveTo(X(d.current), padT); ctx.lineTo(X(d.current), Y(0)); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.font = "10px 'Segoe UI', sans-serif";
-    ctx.fillStyle = P.text; ctx.textAlign = "center";
-    ctx.fillText("Mean " + d.mean.toFixed(4), X(d.mean), padT - 12);
+    ctx.font = (W < 360 ? "9px" : "10px") + " 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    var meanX = X(d.mean), curX = X(d.current);
+    var meanY = padT - 14, curY = padT - 2;
+    ctx.fillStyle = P.text;
+    ctx.fillText("Mean " + d.mean.toFixed(4), meanX, meanY);
     ctx.fillStyle = P.red;
-    ctx.fillText("Current " + d.current.toFixed(4), X(d.current), padT - 2);
+    ctx.fillText("Current " + d.current.toFixed(4), curX, curY);
 
     // x labels
     ctx.fillStyle = P.text;
@@ -242,6 +263,308 @@
     ctx.textAlign = "center";
     ctx.fillText(score !== null && score !== undefined ? Math.round(score) : "—", cx, cy - 12);
   }
+
+  function lastClose(arr) {
+    if (!arr || !arr.length) return null;
+    for (var i = arr.length - 1; i >= 0; i--) {
+      if (arr[i] !== null && isFinite(arr[i]) && arr[i] > 0) return arr[i];
+    }
+    return null;
+  }
+
+  function sellSymbolFrom(detail) {
+    var sm = detail.summary || {};
+    var rec = sm.recommendation || "";
+    var m = rec.match(/SELL\s+([A-Z0-9.&-]+)/i);
+    if (m) return m[1].toUpperCase();
+    if (sm.z_score != null && sm.z_score < 0) return sm.instrument2;
+    return sm.instrument1;
+  }
+
+  function fmtInr(v) {
+    if (v === null || v === undefined || !isFinite(v)) return "—";
+    return "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  }
+
+  function fmtChg(chg, pct) {
+    if (pct === null || pct === undefined || !isFinite(pct)) return { text: "", cls: "" };
+    var sign = pct > 0 ? "+" : "";
+    var chgTxt = chg !== null && isFinite(chg) ? sign + Number(chg).toFixed(2) + "  " : "";
+    return { text: chgTxt + sign + Number(pct).toFixed(2) + "%", cls: pct >= 0 ? "up" : "down" };
+  }
+
+  function numVal(id, fallback) {
+    var v = parseFloat(el(id).value);
+    return isFinite(v) && v > 0 ? v : (fallback || 0);
+  }
+
+  function intVal(id, fallback) {
+    var v = parseInt(el(id).value, 10);
+    return isFinite(v) && v > 0 ? v : (fallback || 1);
+  }
+
+  function quoteLeg(which, seg) {
+    if (!_liveData) return null;
+    var pack = seg === "futures" ? _liveData.futures : _liveData.cash;
+    return pack ? pack["leg" + which] : null;
+  }
+
+  function applySegment(which, resetQty) {
+    var seg = el("pd-c-seg" + which).value;
+    var lotEl = el("pd-c-lot" + which);
+    var leg = quoteLeg(which, seg);
+    var cash = quoteLeg(which, "cash");
+    if (seg === "futures") {
+      var lot = (leg && leg.has_future && leg.lot_size) ? leg.lot_size : 1;
+      lotEl.disabled = false;
+      if (resetQty || !intVal("pd-c-lot" + which, 0)) lotEl.value = lot;
+      if (leg && leg.ltp) el("pd-c-price" + which).value = Number(leg.ltp).toFixed(2);
+      if (resetQty) {
+        el("pd-c-nlot" + which).value = 1;
+        el("pd-c-qty" + which).value = lot;
+      }
+      el("pd-hedge-note").textContent = (leg && !leg.has_future)
+        ? (leg.symbol + " has no NSE future; lot size starts at 1 and can be edited.")
+        : "Cash: Lot Size is 1, so Lot and Qty stay in sync. Future: Lot is number of lots; Qty = Lot × Lot Size.";
+    } else {
+      lotEl.value = 1;
+      lotEl.disabled = true;
+      if (cash && cash.ltp) el("pd-c-price" + which).value = Number(cash.ltp).toFixed(2);
+      if (resetQty) {
+        el("pd-c-nlot" + which).value = 1;
+        el("pd-c-qty" + which).value = 1;
+      } else {
+        el("pd-c-nlot" + which).value = intVal("pd-c-qty" + which);
+      }
+    }
+    _hedgeFront = [];
+    _hedgeIdx = -1;
+    refreshTotals();
+  }
+
+  function syncFromLots(which) {
+    var ls = intVal("pd-c-lot" + which);
+    var n = intVal("pd-c-nlot" + which);
+    el("pd-c-qty" + which).value = n * ls;
+    refreshTotals();
+  }
+
+  function syncFromQty(which) {
+    var ls = intVal("pd-c-lot" + which);
+    var qty = intVal("pd-c-qty" + which);
+    var n = Math.max(1, Math.round(qty / ls));
+    el("pd-c-nlot" + which).value = n;
+    el("pd-c-qty" + which).value = n * ls;
+    refreshTotals();
+  }
+
+  function refreshTotals() {
+    var p1 = numVal("pd-c-price1"), p2 = numVal("pd-c-price2");
+    var q1 = intVal("pd-c-qty1"), q2 = intVal("pd-c-qty2");
+    var v1 = p1 * q1, v2 = p2 * q2;
+    el("pd-c-val1").textContent = v1 ? fmtInr(v1) : "—";
+    el("pd-c-val2").textContent = v2 ? fmtInr(v2) : "—";
+    if (!v1 || !v2) {
+      el("pd-h-imb").textContent = "—";
+      el("pd-h-gross").textContent = "—";
+      return;
+    }
+    var imb = Math.abs(v1 - v2) / ((v1 + v2) / 2) * 100;
+    el("pd-h-imb").textContent = imb.toFixed(2) + "%";
+    el("pd-h-gross").textContent = fmtInr(v1 + v2);
+  }
+
+  function applyHedgePick(pick, lot1, lot2) {
+    el("pd-c-nlot1").value = pick.n1;
+    el("pd-c-nlot2").value = pick.n2;
+    el("pd-c-qty1").value = pick.n1 * lot1;
+    el("pd-c-qty2").value = pick.n2 * lot2;
+    refreshTotals();
+  }
+
+  // Cash lot = 1 share; a futures lot is price × lot size. Caps must be large
+  // enough to match at least one of the other side (e.g. ~257 M&M shares vs 1 Hero fut).
+  function lotCap(seg, uThis, uOther) {
+    var need = Math.max(1, Math.ceil(uOther / uThis));
+    if (seg === "futures") return Math.min(120, Math.max(40, need + 8));
+    return Math.min(20000, Math.max(400, need * 2));
+  }
+
+  function hedgeCandidates(u1, u2, max1, max2) {
+    var seen = {}, list = [];
+    function consider(n1, n2) {
+      if (n1 < 1 || n2 < 1 || n1 > max1 || n2 > max2) return;
+      var key = n1 + ":" + n2;
+      if (seen[key]) return;
+      seen[key] = true;
+      var v1 = n1 * u1, v2 = n2 * u2;
+      var imb = Math.abs(v1 - v2) / ((v1 + v2) / 2);
+      list.push({ n1: n1, n2: n2, v1: v1, v2: v2, imb: imb, tot: v1 + v2 });
+    }
+    function sweep(nMax, fromFirst) {
+      for (var n = 1; n <= nMax; n++) {
+        var t = fromFirst ? (n * u1 / u2) : (n * u2 / u1);
+        var cands = [Math.round(t), Math.floor(t), Math.ceil(t), Math.round(t) - 1, Math.round(t) + 1];
+        for (var i = 0; i < cands.length; i++) {
+          if (fromFirst) consider(n, cands[i]);
+          else consider(cands[i], n);
+        }
+      }
+    }
+    sweep(max1, true);
+    sweep(max2, false);
+    list.sort(function (a, b) { return a.tot - b.tot || a.imb - b.imb; });
+    var front = [], bestImb = Infinity;
+    list.forEach(function (c) {
+      if (c.imb < bestImb - 1e-12) {
+        front.push(c);
+        bestImb = c.imb;
+      }
+    });
+    return front;
+  }
+
+  function calculateHedge() {
+    var p1 = numVal("pd-c-price1"), p2 = numVal("pd-c-price2");
+    var lot1 = intVal("pd-c-lot1"), lot2 = intVal("pd-c-lot2");
+    if (!p1 || !p2) {
+      el("pd-live-stamp").textContent = "Enter prices first";
+      return;
+    }
+    var u1 = p1 * lot1, u2 = p2 * lot2;
+    var max1 = lotCap(el("pd-c-seg1").value, u1, u2);
+    var max2 = lotCap(el("pd-c-seg2").value, u2, u1);
+    _hedgeFront = hedgeCandidates(u1, u2, max1, max2);
+    if (!_hedgeFront.length) return;
+    _hedgeIdx = _hedgeFront.length - 1;
+    var best = _hedgeFront[_hedgeIdx];
+    applyHedgePick(best, lot1, lot2);
+    el("pd-hedge-note").textContent =
+      "Lowest imbalance " + (best.imb * 100).toFixed(2) + "% · " +
+      best.n1 + " lot vs " + best.n2 + " lot. Click Lower for a cheaper mix.";
+  }
+
+  function lowerHedge() {
+    if (!_hedgeFront.length) {
+      calculateHedge();
+      if (_hedgeFront.length < 2) {
+        el("pd-hedge-note").textContent = "No cheaper mix with a next-best imbalance.";
+        return;
+      }
+    }
+    if (_hedgeIdx <= 0) {
+      el("pd-hedge-note").textContent = "Already at the lowest capital on this curve.";
+      return;
+    }
+    _hedgeIdx -= 1;
+    var pick = _hedgeFront[_hedgeIdx];
+    var lot1 = intVal("pd-c-lot1"), lot2 = intVal("pd-c-lot2");
+    applyHedgePick(pick, lot1, lot2);
+    el("pd-hedge-note").textContent =
+      "Lower capital " + fmtInr(pick.tot) + " · imbalance " + (pick.imb * 100).toFixed(2) +
+      "% · " + pick.n1 + " lot vs " + pick.n2 + " lot" +
+      (_hedgeIdx === 0 ? " (lowest capital)." : ". Click Lower again for cheaper.");
+  }
+
+  function renderHeadQuotes() {
+    var cash = _liveData && _liveData.cash;
+    if (!cash) return;
+    [1, 2].forEach(function (n) {
+      var leg = cash["leg" + n];
+      if (!leg) return;
+      el("pd-head-px" + n).textContent = leg.ltp != null ? fmtInr(leg.ltp) : "—";
+      var c = fmtChg(leg.chg, leg.chg_pct);
+      var chgEl = el("pd-head-chg" + n);
+      chgEl.textContent = c.text;
+      chgEl.className = "pd-title-chg " + c.cls;
+    });
+  }
+
+  function fillCalcPrices() {
+    applySegment(1, false);
+    applySegment(2, false);
+  }
+
+  function initCalculator() {
+    if (!_detail) return;
+    var sm = _detail.summary;
+    el("pd-c-sym1").textContent = sm.instrument1;
+    el("pd-c-sym2").textContent = sm.instrument2;
+    var sell = sellSymbolFrom(_detail);
+    el("pd-c-trade1").value = sell === sm.instrument1 ? "SELL" : "BUY";
+    el("pd-c-trade2").value = sell === sm.instrument1 ? "BUY" : "SELL";
+    el("pd-c-seg1").value = "cash";
+    el("pd-c-seg2").value = "cash";
+    var c1 = lastClose(_detail.close1), c2 = lastClose(_detail.close2);
+    if (c1) el("pd-c-price1").value = Number(c1).toFixed(2);
+    if (c2) el("pd-c-price2").value = Number(c2).toFixed(2);
+    el("pd-c-lot1").value = 1;
+    el("pd-c-lot2").value = 1;
+    el("pd-c-lot1").disabled = true;
+    el("pd-c-lot2").disabled = true;
+    el("pd-c-nlot1").value = 1;
+    el("pd-c-nlot2").value = 1;
+    el("pd-c-qty1").value = 1;
+    el("pd-c-qty2").value = 1;
+    refreshTotals();
+  }
+
+  async function fetchLiveQuotes(updateCalc) {
+    if (!_detail) return;
+    var sm = _detail.summary;
+    try {
+      var res = await fetch("/api/analysis/cdc/pair-live", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instrument1: sm.instrument1,
+          instrument2: sm.instrument2,
+          sell_symbol: sellSymbolFrom(_detail),
+          last_close1: lastClose(_detail.close1),
+          last_close2: lastClose(_detail.close2),
+        }),
+      });
+      var data = await res.json();
+      if (!data.success) {
+        el("pd-live-stamp").textContent = data.message || "Quote error";
+        return;
+      }
+      _liveData = data;
+      renderHeadQuotes();
+      if (updateCalc) fillCalcPrices();
+      el("pd-live-stamp").textContent = "Updated " + new Date().toLocaleTimeString();
+    } catch (e) {
+      el("pd-live-stamp").textContent = "Quote error: " + e.message;
+    }
+  }
+
+  function stopLiveQuotes() {
+    if (_liveTimer) { clearInterval(_liveTimer); _liveTimer = null; }
+  }
+
+  function startLiveQuotes() {
+    stopLiveQuotes();
+    fetchLiveQuotes(true);
+    _liveTimer = setInterval(function () { fetchLiveQuotes(false); }, 15000);
+  }
+
+  el("pd-c-seg1").addEventListener("change", function () { applySegment(1, true); });
+  el("pd-c-seg2").addEventListener("change", function () { applySegment(2, true); });
+  el("pd-c-nlot1").addEventListener("input", function () { syncFromLots(1); });
+  el("pd-c-nlot2").addEventListener("input", function () { syncFromLots(2); });
+  el("pd-c-qty1").addEventListener("input", function () { syncFromQty(1); });
+  el("pd-c-qty2").addEventListener("input", function () { syncFromQty(2); });
+  el("pd-c-lot1").addEventListener("input", function () { syncFromLots(1); });
+  el("pd-c-lot2").addEventListener("input", function () { syncFromLots(2); });
+  ["pd-c-price1", "pd-c-price2"].forEach(function (id) {
+    el(id).addEventListener("input", refreshTotals);
+  });
+  el("pd-calc-btn").addEventListener("click", calculateHedge);
+  el("pd-lower-btn").addEventListener("click", lowerHedge);
+  el("pd-px-refresh").addEventListener("click", function () {
+    el("pd-live-stamp").textContent = "Refreshing…";
+    fetchLiveQuotes(true);
+  });
 
   // ── Render everything from a detail payload ──────────────────
   function fmtN(v, dp) { return v === null || v === undefined ? "—" : Number(v).toFixed(dp); }
@@ -296,7 +619,54 @@
       el("pd-reco-sub").textContent = "";
     }
 
-    var t = detail.time;
+    requestAnimationFrame(function () { drawAllCharts(); });
+    var c1 = lastClose(detail.close1), c2 = lastClose(detail.close2);
+    if (c1) el("pd-head-px1").textContent = fmtInr(c1);
+    if (c2) el("pd-head-px2").textContent = fmtInr(c2);
+    el("pd-head-chg1").textContent = "";
+    el("pd-head-chg2").textContent = "";
+    initCalculator();
+    el("pd-live-stamp").textContent = "Fetching live quotes…";
+    startLiveQuotes();
+
+    // Stats table
+    var check = '<span class="pd-ok">✔</span>';
+    var stats = [
+      ["Correlation (Full Period)", fmtN(sm.correlation, 2)],
+      ["Rolling Correlation (" + detail.params.rolling_window + ")", fmtN(sm.rolling_correlation, 2)],
+      ["Density (Current)", sm.density === null ? "—" : (sm.density * 100).toFixed(2) + "%"],
+      ["Z Score (Current)", sm.z_score === null ? "—" : (sm.z_score > 0 ? "+" : "") + sm.z_score.toFixed(2)],
+      ["Cointegration (p-value)", sm.coint_pvalue === null ? "—"
+        : sm.coint_pvalue.toFixed(4) + (sm.coint_pvalue <= 0.05 ? ' <span class="pd-pass">PASS</span>' : ' <span class="pd-fail">FAIL</span>')],
+      ["Half Life", sm.half_life === null ? "—" : Math.round(sm.half_life) + " Bars"],
+      ["Hurst Exponent", fmtN(sm.hurst, 2)],
+      ["Volatility Ratio", fmtN(sm.volatility_ratio, 2)],
+      ["Expected Reversion", sm.expected_reversion_bars === null ? "—" : Math.round(sm.expected_reversion_bars) + " Bars"],
+      ["Historical Win Rate", sm.historical_win_pct === null ? "—" : sm.historical_win_pct + "%"],
+      ["Bars Used", sm.bars_used],
+      ["Last Updated", sm.last_updated],
+    ];
+    el("pd-stats").innerHTML = stats.map(function (r) {
+      return "<tr><td>" + r[0] + "</td><td class=\"num\">" + r[1] + " " + check + "</td></tr>";
+    }).join("");
+
+    // Breakdown table
+    el("pd-breakdown").innerHTML =
+      "<tr><th>Factor</th><th>Score</th><th>Weight</th><th>Contrib.</th></tr>" +
+      (detail.breakdown || []).map(function (b) {
+        var barColor = b.score >= 0.85 ? "#3fb950" : b.score >= 0.6 ? "#d29922" : "#f0883e";
+        return "<tr><td>" + b.factor + "</td>" +
+          "<td><div class=\"pd-bar\"><div class=\"pd-bar-fill\" style=\"width:" + (b.score * 100) + "%;background:" + barColor + "\"></div></div> " + b.score.toFixed(2) + "</td>" +
+          "<td class=\"num\">" + b.weight + "%</td>" +
+          "<td class=\"num\">" + b.contribution.toFixed(1) + "</td></tr>";
+      }).join("");
+    el("pd-total").innerHTML = "TOTAL SCORE &nbsp; <b>" +
+      (sm.signal_strength !== null ? Math.round(sm.signal_strength) : "—") + "</b> / 100";
+  }
+
+  function drawAllCharts() {
+    if (!_detail) return;
+    var detail = _detail, t = detail.time, P = pal();
 
     drawChart("pd-c-norm", t, [
       { data: detail.norm1, color: P.blue, tag: true },
@@ -304,7 +674,7 @@
     ], { dp: 1 });
 
     var hl = [];
-    if (detail.bands.mean !== undefined) {
+    if (detail.bands && detail.bands.mean !== undefined) {
       hl = [
         { y: detail.bands.p2sd, color: P.red,    label: fmtN(detail.bands.p2sd, 4) },
         { y: detail.bands.p1sd, color: P.orange, label: fmtN(detail.bands.p1sd, 4) },
@@ -354,40 +724,6 @@
       markerSeries: detail.zscore,
       padR: 62,
     });
-
-    // Stats table
-    var check = '<span class="pd-ok">✔</span>';
-    var stats = [
-      ["Correlation (Full Period)", fmtN(sm.correlation, 2)],
-      ["Rolling Correlation (" + detail.params.rolling_window + ")", fmtN(sm.rolling_correlation, 2)],
-      ["Density (Current)", sm.density === null ? "—" : (sm.density * 100).toFixed(2) + "%"],
-      ["Z Score (Current)", sm.z_score === null ? "—" : (sm.z_score > 0 ? "+" : "") + sm.z_score.toFixed(2)],
-      ["Cointegration (p-value)", sm.coint_pvalue === null ? "—"
-        : sm.coint_pvalue.toFixed(4) + (sm.coint_pvalue <= 0.05 ? ' <span class="pd-pass">PASS</span>' : ' <span class="pd-fail">FAIL</span>')],
-      ["Half Life", sm.half_life === null ? "—" : Math.round(sm.half_life) + " Bars"],
-      ["Hurst Exponent", fmtN(sm.hurst, 2)],
-      ["Volatility Ratio", fmtN(sm.volatility_ratio, 2)],
-      ["Expected Reversion", sm.expected_reversion_bars === null ? "—" : Math.round(sm.expected_reversion_bars) + " Bars"],
-      ["Historical Win Rate", sm.historical_win_pct === null ? "—" : sm.historical_win_pct + "%"],
-      ["Bars Used", sm.bars_used],
-      ["Last Updated", sm.last_updated],
-    ];
-    el("pd-stats").innerHTML = stats.map(function (r) {
-      return "<tr><td>" + r[0] + "</td><td class=\"num\">" + r[1] + " " + check + "</td></tr>";
-    }).join("");
-
-    // Breakdown table
-    el("pd-breakdown").innerHTML =
-      "<tr><th>Factor</th><th>Score</th><th>Weight</th><th>Contrib.</th></tr>" +
-      (detail.breakdown || []).map(function (b) {
-        var barColor = b.score >= 0.85 ? "#3fb950" : b.score >= 0.6 ? "#d29922" : "#f0883e";
-        return "<tr><td>" + b.factor + "</td>" +
-          "<td><div class=\"pd-bar\"><div class=\"pd-bar-fill\" style=\"width:" + (b.score * 100) + "%;background:" + barColor + "\"></div></div> " + b.score.toFixed(2) + "</td>" +
-          "<td class=\"num\">" + b.weight + "%</td>" +
-          "<td class=\"num\">" + b.contribution.toFixed(1) + "</td></tr>";
-      }).join("");
-    el("pd-total").innerHTML = "TOTAL SCORE &nbsp; <b>" +
-      (sm.signal_strength !== null ? Math.round(sm.signal_strength) : "—") + "</b> / 100";
   }
 
   // ── Loading a pair (called from the screener grid) ───────────
@@ -416,6 +752,7 @@
   };
 
   el("pd-back-btn").addEventListener("click", function () {
+    stopLiveQuotes();
     document.querySelectorAll(".page").forEach(function (p) { p.classList.remove("active"); });
     el("page-correlation-density").classList.add("active");
     document.querySelectorAll(".nav-item").forEach(function (l) {
@@ -423,21 +760,27 @@
     });
   });
 
-  // Redraw on resize / theme change
-  var _rsTimer = null;
+  // Redraw on resize / DPI / sidebar / theme — match the live box size
+  var _rsTimer = 0;
   function scheduleRedraw() {
-    clearTimeout(_rsTimer);
-    _rsTimer = setTimeout(function () { if (_detail) render(_detail); }, 150);
+    if (_rsTimer) cancelAnimationFrame(_rsTimer);
+    _rsTimer = requestAnimationFrame(function () {
+      _rsTimer = requestAnimationFrame(function () {
+        _rsTimer = 0;
+        drawAllCharts();
+      });
+    });
   }
   window.addEventListener("resize", scheduleRedraw);
-  // Panel widths also change without a window resize (sidebar toggle,
-  // grid reflow) — observe the dashboard container itself.
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", scheduleRedraw);
+  }
   if (window.ResizeObserver) {
-    var _lastW = 0;
-    new ResizeObserver(function (entries) {
-      var w = entries[0].contentRect.width;
-      if (Math.abs(w - _lastW) > 4) { _lastW = w; scheduleRedraw(); }
-    }).observe(el("pd-dash"));
+    var ro = new ResizeObserver(scheduleRedraw);
+    ro.observe(el("pd-dash"));
+    document.querySelectorAll("#page-pair-detail .pd-chart-wrap").forEach(function (wrap) {
+      ro.observe(wrap);
+    });
   }
   window._pairDetailApplyTheme = function () { if (_detail) render(_detail); };
 

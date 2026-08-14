@@ -39,3 +39,7 @@ numpy>=2.3.3,<3; python_version >= "3.14"
 
 # --- Windows console ---
 colorama>=0.4.6,<1
+
+# --- Excel COM (open workbooks) ---
+xlwings>=0.29.0,<1
+pywin32>=306; sys_platform == "win32"

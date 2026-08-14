@@ -6,6 +6,7 @@
     {
       "id": "RSI_14",
       "type": "rsi",
+      "source": "builtin",
       "params": {
         "period": 14
       }
@@ -13,6 +14,7 @@
     {
       "id": "ATR_14",
       "type": "atr",
+      "source": "builtin",
       "params": {
         "period": 14
       }
@@ -20,6 +22,7 @@
     {
       "id": "ema_200",
       "type": "ema",
+      "source": "builtin",
       "params": {
         "period": 200
       }
@@ -27,8 +30,104 @@
     {
       "id": "ema_20",
       "type": "ema",
+      "source": "builtin",
       "params": {
         "period": 20
+      }
+    },
+    {
+      "id": "sma_200",
+      "type": "sma",
+      "source": "builtin",
+      "params": {
+        "period": 200
+      }
+    },
+    {
+      "id": "sma_2",
+      "type": "sma",
+      "source": "builtin",
+      "params": {
+        "period": 2
+      }
+    },
+    {
+      "id": "sma_10",
+      "type": "sma",
+      "source": "builtin",
+      "params": {
+        "period": 10
+      }
+    },
+    {
+      "id": "macd_12_26_9",
+      "type": "macd",
+      "source": "builtin",
+      "params": {
+        "fast": 12,
+        "signal": 9,
+        "slow": 26
+      }
+    },
+    {
+      "id": "smoothing",
+      "type": "smoothing",
+      "source": "custom",
+      "params": {
+        "levels": [
+          {
+            "bandwidth": 3,
+            "color": "#58a6ff",
+            "degree": 2,
+            "enabled": true,
+            "input": "price",
+            "marker_color": "#58a6ff",
+            "markers": false,
+            "model": "savgol",
+            "polyorder": 3,
+            "thickness": 1,
+            "window": 11
+          },
+          {
+            "bandwidth": 3,
+            "color": "#f0883e",
+            "degree": 2,
+            "enabled": true,
+            "input": "ce1",
+            "marker_color": "#f0883e",
+            "markers": false,
+            "model": "gaussian",
+            "polyorder": 3,
+            "thickness": 1,
+            "window": 11
+          },
+          {
+            "bandwidth": 8,
+            "color": "#3fb950",
+            "degree": 2,
+            "enabled": true,
+            "input": "ce2",
+            "marker_color": "#3fb950",
+            "markers": false,
+            "model": "kernel_poly",
+            "polyorder": 3,
+            "thickness": 1,
+            "window": 11
+          },
+          {
+            "bandwidth": 6,
+            "color": "#d2a8ff",
+            "degree": 2,
+            "enabled": true,
+            "input": "ce3",
+            "marker_color": "#d2a8ff",
+            "markers": false,
+            "model": "gaussian",
+            "polyorder": 3,
+            "thickness": 1,
+            "window": 11
+          }
+        ]
       }
     }
   ],
@@ -46,13 +145,18 @@
     "M"
   ],
   "enabled_instrument_types": [
-    "C"
+    "C",
+    "D"
   ],
   "enabled_exch_types": [
-    "C"
+    "C",
+    "D",
+    "U"
   ],
   "enabled_scrip_types": [
-    "EQ"
+    "EQ",
+    "XX",
+    "OP"
   ],
   "save_to_datafeed": false,
   "5paisa_enabled": true,
@@ -122,12 +226,12 @@
     {
       "key": "vanna",
       "label": "Vanna",
-      "visible": false
+      "visible": true
     },
     {
       "key": "charm",
       "label": "Charm",
-      "visible": false
+      "visible": true
     },
     {
       "key": "volga",
@@ -158,6 +262,194 @@
       "key": "veta",
       "label": "Veta",
       "visible": false
+    }
+  ],
+  "chart_drawings": {},
+  "yahoo_enabled": false,
+  "yahoo_base_url": "https://query1.finance.yahoo.com/v8/finance/chart/{YahooStockSymbol}?symbol={YahooStockSymbol}&period1={UTCStartDTM}&period2={UTCEndDTM}&useYfid=true&interval={Interval}",
+  "broker_intervals": {
+    "dhan": [
+      {
+        "id": "1",
+        "label": "1m",
+        "source": "1",
+        "resample": "",
+        "days": 10,
+        "enabled": true
+      },
+      {
+        "id": "5",
+        "label": "5m",
+        "source": "5",
+        "resample": "",
+        "days": 21,
+        "enabled": true
+      },
+      {
+        "id": "15",
+        "label": "15m",
+        "source": "15",
+        "resample": "",
+        "days": 45,
+        "enabled": true
+      },
+      {
+        "id": "25",
+        "label": "25m",
+        "source": "25",
+        "resample": "",
+        "days": 60,
+        "enabled": true
+      },
+      {
+        "id": "60",
+        "label": "1h",
+        "source": "60",
+        "resample": "",
+        "days": 120,
+        "enabled": true
+      },
+      {
+        "id": "D",
+        "label": "1D",
+        "source": "D",
+        "resample": "",
+        "days": 1825,
+        "enabled": true
+      }
+    ],
+    "5paisa": [
+      {
+        "id": "1",
+        "label": "1m",
+        "source": "1",
+        "resample": "",
+        "days": 10,
+        "enabled": true
+      },
+      {
+        "id": "5",
+        "label": "5m",
+        "source": "5",
+        "resample": "",
+        "days": 21,
+        "enabled": true
+      },
+      {
+        "id": "15",
+        "label": "15m",
+        "source": "15",
+        "resample": "",
+        "days": 45,
+        "enabled": true
+      },
+      {
+        "id": "25",
+        "label": "30m",
+        "source": "25",
+        "resample": "",
+        "days": 60,
+        "enabled": true
+      },
+      {
+        "id": "60",
+        "label": "1h",
+        "source": "60",
+        "resample": "",
+        "days": 120,
+        "enabled": true
+      },
+      {
+        "id": "D",
+        "label": "1D",
+        "source": "D",
+        "resample": "",
+        "days": 1825,
+        "enabled": true
+      }
+    ],
+    "yahoo": [
+      {
+        "id": "M",
+        "label": "1m",
+        "source": "1",
+        "resample": "",
+        "days": 8,
+        "enabled": true
+      },
+      {
+        "id": "5M",
+        "label": "5m",
+        "source": "5",
+        "resample": "",
+        "days": 30,
+        "enabled": true
+      },
+      {
+        "id": "15M",
+        "label": "15m",
+        "source": "15",
+        "resample": "",
+        "days": 40,
+        "enabled": true
+      },
+      {
+        "id": "30M",
+        "label": "30m",
+        "source": "25",
+        "resample": "",
+        "days": 50,
+        "enabled": true
+      },
+      {
+        "id": "1H",
+        "label": "1h",
+        "source": "60",
+        "resample": "",
+        "days": 80,
+        "enabled": true
+      },
+      {
+        "id": "D",
+        "label": "D",
+        "source": "D",
+        "resample": "",
+        "days": 600,
+        "enabled": true
+      },
+      {
+        "id": "W",
+        "label": "W",
+        "source": "W",
+        "resample": "",
+        "days": 1825,
+        "enabled": true
+      }
+    ]
+  },
+  "excel_enabled": false,
+  "excel_configs": [
+    {
+      "id": "3c941c37-1be1-4085-ac86-79cb49c19fc3",
+      "name": "Test1",
+      "workbook": "Testing.xlsx",
+      "sheet": "Test1",
+      "header_row": 2,
+      "poll_seconds": 5,
+      "mapping": {
+        "date": "DTM",
+        "open": "Open",
+        "high": "H",
+        "low": "L",
+        "close": "Close",
+        "volume": ""
+      },
+      "indicators": [
+        {
+          "name": "Test",
+          "column": "XYZ"
+        }
+      ]
     }
   ]
 }

@@ -22,9 +22,47 @@ import threading
 from flask import Flask, render_template, request, jsonify, session, make_response
 from flask_socketio import SocketIO, emit, disconnect
 
-# 5Paisa broker module
+# Broker modules — load best-effort so a broken/offline broker cannot block the app
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "broker"))
-import fivepaisa as fp
+
+
+class _BrokerUnavailable:
+    """Stand-in when a broker module fails to import. Calls raise RuntimeError."""
+
+    def __init__(self, name, default_base_url=""):
+        self._name = name
+        self.DEFAULT_BASE_URL = default_base_url
+        self.YAHOO_LIST_CSV = ""
+        self.MAX_1M_DAYS = 8
+
+    def __getattr__(self, name):
+        def _missing(*args, **kwargs):
+            raise RuntimeError(self._name + " broker is unavailable.")
+        return _missing
+
+
+try:
+    import fivepaisa as fp
+except Exception as e:
+    print("5Paisa broker module failed to load (app will still start): " + str(e))
+    fp = _BrokerUnavailable("5Paisa")
+
+try:
+    import yahoo as yf_broker
+except Exception as e:
+    print("Yahoo broker module failed to load (app will still start): " + str(e))
+    yf_broker = _BrokerUnavailable(
+        "Yahoo",
+        "https://query1.finance.yahoo.com/v8/finance/chart/{YahooStockSymbol}"
+        "?symbol={YahooStockSymbol}&period1={UTCStartDTM}&period2={UTCEndDTM}"
+        "&useYfid=true&interval={Interval}",
+    )
+
+try:
+    import excel as xl_broker
+except Exception as e:
+    print("Excel broker module failed to load (app will still start): " + str(e))
+    xl_broker = _BrokerUnavailable("Excel")
 
 # Analysis / services packages (Correlation Density screener)
 from analysis.correlation_density import ScanParams
@@ -32,11 +70,38 @@ from analysis.pair_detail import compute_pair_detail
 from services.pair_generator import load_sector_map
 from services.scan_manager import ScanManager
 from services.market_data import PriceCache
+from services.pair_quotes import build_pair_live
 from services.option_chain import list_underlyings, list_expiries, build_option_chain
 from services.open_interest import build_oi_change
+from services.gamma_exposure import build_gamma_exposure
+from custom_indicators import catalog as py_ind_catalog, compute as py_ind_compute
+from services.time_intervals import (
+    RESAMPLE_OPTIONS,
+    apply_interval_transform,
+    combine_candles_to_interval,
+    combine_overlays_to_interval,
+    default_broker_intervals,
+    native_catalog,
+    normalize_all_intervals,
+    normalize_broker_intervals,
+    resolve_interval,
+)
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+_SECRET_FILE = os.path.join(os.path.dirname(__file__), ".flask_secret")
+try:
+    with open(_SECRET_FILE, "r") as _sf:
+        _secret = _sf.read().strip()
+except OSError:
+    _secret = ""
+if not _secret:
+    _secret = os.urandom(24).hex()
+    try:
+        with open(_SECRET_FILE, "w") as _sf:
+            _sf.write(_secret)
+    except OSError:
+        pass
+app.secret_key = _secret
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # ---------- Live Feed (5Paisa WebSocket proxy) ----------
@@ -156,6 +221,43 @@ _fp_instruments = []
 _fp_instruments_loading = False
 _fp_instruments_last_loaded = None   # datetime or None
 
+INSTRUMENT_CSV_MAX_AGE_DAYS = 7
+
+
+def _instrument_csv_path():
+    if os.path.exists(FP_INSTRUMENTS_CSV):
+        return FP_INSTRUMENTS_CSV
+    legacy = os.path.join(DATAFEED_DIR, "Instrument.csv")
+    if os.path.exists(legacy):
+        return legacy
+    return None
+
+
+def _instrument_csv_mtime():
+    path = _instrument_csv_path()
+    if not path:
+        return None
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
+def _instrument_csv_is_stale(max_age_days=INSTRUMENT_CSV_MAX_AGE_DAYS):
+    mtime = _instrument_csv_mtime()
+    if mtime is None:
+        return True
+    return (time.time() - mtime) >= max_age_days * 86400
+
+
+def _refresh_fp_instruments_async(force=False):
+    global _fp_instruments_loading
+    if _fp_instruments_loading:
+        return
+    _fp_instruments_loading = True
+    threading.Thread(target=_load_fp_instruments, kwargs={"force": force}, daemon=True).start()
+
+
 def _load_fp_instruments(force=False):
     """Load 5Paisa instruments from Instrument.csv in the app folder, downloading only when missing or force=True."""
     global _fp_instruments, _fp_instruments_loading, _fp_instruments_last_loaded
@@ -182,9 +284,24 @@ def _load_fp_instruments(force=False):
         _fp_instruments_loading = False
 
 
-# Reuse Instrument.csv at startup when present (no network)
-if os.path.exists(FP_INSTRUMENTS_CSV) or os.path.exists(os.path.join(DATAFEED_DIR, "Instrument.csv")):
-    _load_fp_instruments(force=False)
+def _startup_fp_instruments():
+    """Parse cache / refresh scrip master off the server thread so Flask can bind immediately."""
+    def _run():
+        try:
+            cached = (
+                os.path.exists(FP_INSTRUMENTS_CSV)
+                or os.path.exists(os.path.join(DATAFEED_DIR, "Instrument.csv"))
+            )
+            if cached:
+                _load_fp_instruments(force=False)
+            if _instrument_csv_is_stale():
+                _load_fp_instruments(force=True)
+        except Exception as e:
+            print("5Paisa scrip master startup load failed: " + str(e))
+    threading.Thread(target=_run, daemon=True, name="fp-scrip-master").start()
+
+
+_startup_fp_instruments()
 
 
 # ---------- Credential helpers ----------
@@ -203,6 +320,46 @@ def save_credentials(data: dict) -> None:
     existing.update(data)
     with open(CRED_FILE, "w") as f:
         json.dump(existing, f, indent=2)
+
+
+def _jwt_expiry(token):
+    """Decode JWT payload (no sig verify) and return exp Unix timestamp, or None."""
+    try:
+        import base64 as _b64, json as _json
+        payload = token.split(".")[1]
+        payload += "=" * (4 - len(payload) % 4)
+        data = _json.loads(_b64.urlsafe_b64decode(payload).decode("utf-8"))
+        return data.get("exp")
+    except Exception:
+        return None
+
+
+def _fp_valid_access_token():
+    """Return a non-expired 5Paisa access token from cred.json, or empty string."""
+    creds = load_credentials()
+    c = creds.get("5paisa", {}) or {}
+    token = (c.get("access_token") or "").strip()
+    if not token:
+        return ""
+    exp = _jwt_expiry(token)
+    if exp is None:
+        exp = c.get("token_expiry") or 0
+    try:
+        exp = int(exp)
+    except (TypeError, ValueError):
+        exp = 0
+    if exp and time.time() >= exp - 120:
+        return ""
+    return token
+
+
+def _ensure_fp_session():
+    """Treat a valid saved 5Paisa token as connected (Flask session is lost on restart)."""
+    if not _fp_valid_access_token():
+        session.pop("5paisa_connected", None)
+        return False
+    session["5paisa_connected"] = True
+    return True
 
 
 # ---------- App Settings helpers ----------
@@ -401,6 +558,7 @@ TA_CATALOG = {
 DEFAULT_OC_PRICE_FIELDS = [
     {"key": "oi", "label": "OI", "visible": True},
     {"key": "oi_chg", "label": "OI Chg", "visible": True},
+    {"key": "interp", "label": "Int.", "visible": True},
     {"key": "volume", "label": "Volume", "visible": True},
     {"key": "chg", "label": "Chg", "visible": True},
     {"key": "chg_pct", "label": "Chg%", "visible": True},
@@ -428,6 +586,10 @@ DEFAULT_APP_SETTINGS = {
     "api_enabled": False,
     "dhan_enabled": True,
     "5paisa_enabled": True,
+    "yahoo_enabled": False,
+    "yahoo_base_url": yf_broker.DEFAULT_BASE_URL,
+    "excel_enabled": False,
+    "excel_configs": [],
     "chart_refresh_interval": 0,
     "enabled_exchanges": ["N", "B", "M"],
     "enabled_exch_types": ["C", "D", "U"],
@@ -437,6 +599,8 @@ DEFAULT_APP_SETTINGS = {
     "oc_greeks_fields": [dict(x) for x in DEFAULT_OC_GREEKS_FIELDS],
     "ta_enabled": False,
     "ta_indicators": [],
+    "chart_drawings": {},
+    "broker_intervals": default_broker_intervals(),
 }
 
 VALID_EXCHANGES = {"N", "B", "M"}
@@ -552,6 +716,7 @@ def load_app_settings() -> dict:
             s[k] = v
     if "api_key" not in s:
         s["api_key"] = str(uuid.uuid4())
+    s["broker_intervals"] = normalize_all_intervals(s.get("broker_intervals"))
     return s
 
 
@@ -615,9 +780,15 @@ def index():
     dhan_creds = creds.get("dhan", {})
     connected       = session.get("dhan_connected", False)
     dhan_user       = session.get("dhan_user", {})
-    fp_connected    = session.get("5paisa_connected", False)
+    fp_connected    = _ensure_fp_session()
     fp_user         = session.get("5paisa_user", {})
     fp_creds        = creds.get("5paisa", {})
+    app_s           = load_app_settings()
+    yahoo_enabled   = bool(app_s.get("yahoo_enabled"))
+    excel_enabled   = bool(app_s.get("excel_enabled"))
+    dhan_enabled    = app_s.get("dhan_enabled", True) is not False
+    fp_enabled      = app_s.get("5paisa_enabled", True) is not False
+    yahoo_base_url  = (app_s.get("yahoo_base_url") or yf_broker.DEFAULT_BASE_URL).strip() or yf_broker.DEFAULT_BASE_URL
     return render_template(
         "index.html",
         client_id=dhan_creds.get("client_id", ""),
@@ -636,6 +807,11 @@ def index():
         fp_totp_secret=fp_creds.get("totp_secret", ""),
         fp_access_token=fp_creds.get("access_token", ""),
         fp_token_expiry_dt=fp_creds.get("token_expiry_dt", ""),
+        yahoo_enabled=yahoo_enabled,
+        yahoo_base_url=yahoo_base_url,
+        excel_enabled=excel_enabled,
+        dhan_enabled=dhan_enabled,
+        fp_enabled=fp_enabled,
     )
 
 
@@ -788,18 +964,6 @@ def api_5paisa_generate_totp():
         return jsonify({"success": False, "message": "Invalid TOTP secret: " + str(e)}), 400
 
 
-def _jwt_expiry(token):
-    """Decode JWT payload (no sig verify) and return exp Unix timestamp, or None."""
-    try:
-        import base64 as _b64, json as _json
-        payload = token.split(".")[1]
-        payload += "=" * (4 - len(payload) % 4)
-        data = _json.loads(_b64.urlsafe_b64decode(payload).decode("utf-8"))
-        return data.get("exp")
-    except Exception:
-        return None
-
-
 @app.route("/api/5paisa/connect", methods=["POST"])
 def fivepaisa_connect():
     creds = load_credentials()
@@ -828,12 +992,16 @@ def fivepaisa_connect():
         c["token_expiry_dt"] = (datetime.fromtimestamp(exp, timezone.utc).strftime("%Y-%m-%d %H:%M UTC") if exp else "unknown")
         save_credentials({"5paisa": c})
 
-        import threading
-        # Reuse in-memory / Instrument.csv cache; Update button forces a fresh download
-        if not _fp_instruments and not _fp_instruments_loading:
-            threading.Thread(target=_load_fp_instruments, daemon=True).start()
+        # Reuse cache unless missing or Instrument.csv is older than a week
+        if _instrument_csv_is_stale():
+            _refresh_fp_instruments_async(force=True)
+        elif not _fp_instruments:
+            _refresh_fp_instruments_async(force=False)
 
-        margin = fp.get_margin(user_key, client_code, access_token)
+        try:
+            margin = fp.get_margin(user_key, client_code, access_token) or {}
+        except Exception:
+            margin = {}
         session["5paisa_connected"] = True
         session["5paisa_user"] = {
             "client_code":    client_code,
@@ -921,6 +1089,8 @@ def fivepaisa_disconnect():
 
 @app.route("/api/5paisa/scrip-master/status", methods=["GET"])
 def scrip_master_status():
+    mtime = _instrument_csv_mtime()
+    age_days = ((time.time() - mtime) / 86400.0) if mtime is not None else None
     return jsonify({
         "loaded":       len(_fp_instruments) > 0,
         "count":        len(_fp_instruments),
@@ -928,6 +1098,10 @@ def scrip_master_status():
         "last_loaded":  _fp_instruments_last_loaded.strftime("%Y-%m-%d %H:%M UTC") if _fp_instruments_last_loaded else None,
         "cache_file":   "Instrument.csv",
         "cache_exists": os.path.exists(FP_INSTRUMENTS_CSV),
+        "cache_mtime":  datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%d %H:%M UTC") if mtime else None,
+        "cache_age_days": round(age_days, 2) if age_days is not None else None,
+        "stale":        _instrument_csv_is_stale(),
+        "max_age_days": INSTRUMENT_CSV_MAX_AGE_DAYS,
         "datafeed_dir": DATAFEED_DIR,
     })
 
@@ -940,8 +1114,7 @@ def scrip_master_update():
         return jsonify({"success": False, "message": "5Paisa not connected. Connect first to update scrip master."}), 400
     if _fp_instruments_loading:
         return jsonify({"success": False, "message": "Already loading scrip master, please wait..."}), 409
-    import threading
-    threading.Thread(target=_load_fp_instruments, kwargs={"force": True}, daemon=True).start()
+    _refresh_fp_instruments_async(force=True)
     return jsonify({"success": True, "message": "Scrip master update started — saving Instrument.csv in the app folder."})
 
 
@@ -973,8 +1146,7 @@ def instruments_search():
 @app.route("/api/5paisa/current-price", methods=["GET"])
 def get_current_price():
     """Get the current price for a specific instrument."""
-    # Check if 5Paisa is connected
-    if not session.get("5paisa_connected", False):
+    if not _ensure_fp_session():
         return jsonify({"success": False, "message": "Not connected to 5Paisa."}), 400
     
     # Get parameters
@@ -1038,6 +1210,36 @@ def get_current_price():
 
 # ---------- Chart Data ----------
 
+def _interval_cfg(broker, interval_id):
+    return resolve_interval(load_app_settings(), broker, interval_id)
+
+
+def _chart_default_from(interval, broker="5paisa"):
+    cfg = _interval_cfg(broker, interval)
+    days = int(cfg.get("days") or 10)
+    return (datetime.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def _dhan_parse_candles(data):
+    timestamps = data.get("timestamp", [])
+    opens = data.get("open", [])
+    highs = data.get("high", [])
+    lows = data.get("low", [])
+    closes = data.get("close", [])
+    volumes = data.get("volume", [])
+    candles = []
+    for i, ts in enumerate(timestamps):
+        candles.append({
+            "time": ts,
+            "open": opens[i] if i < len(opens) else 0,
+            "high": highs[i] if i < len(highs) else 0,
+            "low": lows[i] if i < len(lows) else 0,
+            "close": closes[i] if i < len(closes) else 0,
+            "volume": volumes[i] if i < len(volumes) else 0,
+        })
+    return candles
+
+
 @app.route("/api/chart/data", methods=["POST"])
 def chart_data():
     if not session.get("dhan_connected"):
@@ -1052,22 +1254,20 @@ def chart_data():
     security_id  = payload.get("security_id", "").strip()
     exch_seg     = payload.get("exchange_segment", "NSE_EQ").strip()
     instrument   = payload.get("instrument", "EQUITY").strip()
-    interval     = payload.get("interval", "1")      # "1","5","15","25","60" or "D"
+    interval     = payload.get("interval", "1")
     from_date    = payload.get("from_date", "")
     to_date      = payload.get("to_date", "")
+    cfg          = _interval_cfg("dhan", interval)
+    source       = cfg.get("source") or interval
 
     if not security_id:
         return jsonify({"success": False, "message": "security_id is required."}), 400
 
-    # Default date range
     today = datetime.today()
     if not to_date:
         to_date = today.strftime("%Y-%m-%d")
     if not from_date:
-        if interval == "D":
-            from_date = (today - timedelta(days=365)).strftime("%Y-%m-%d")
-        else:
-            from_date = (today - timedelta(days=4)).strftime("%Y-%m-%d")
+        from_date = _chart_default_from(interval, "dhan")
 
     headers = {
         "access-token":  access_token,
@@ -1077,7 +1277,7 @@ def chart_data():
     }
 
     try:
-        if interval == "D":
+        if source == "D":
             body = {
                 "dhanClientId":    client_id,
                 "securityId":      security_id,
@@ -1088,43 +1288,22 @@ def chart_data():
                 "toDate":          to_date,
             }
             resp = http.post(f"{DHAN_BASE_URL}/charts/historical",
-                             json=body, headers=headers, timeout=15)
+                             json=body, headers=headers, timeout=30)
         else:
             body = {
                 "dhanClientId":    client_id,
                 "securityId":      security_id,
                 "exchangeSegment": exch_seg,
                 "instrument":      instrument,
-                "interval":        int(interval),
+                "interval":        int(source),
                 "fromDate":        from_date,
                 "toDate":          to_date,
             }
             resp = http.post(f"{DHAN_BASE_URL}/charts/intraday",
-                             json=body, headers=headers, timeout=15)
+                             json=body, headers=headers, timeout=30)
 
         resp.raise_for_status()
-        data = resp.json()
-
-        # Dhan returns parallel arrays: timestamp, open, high, low, close, volume
-        timestamps = data.get("timestamp", [])
-        opens      = data.get("open",      [])
-        highs      = data.get("high",      [])
-        lows       = data.get("low",       [])
-        closes     = data.get("close",     [])
-        volumes    = data.get("volume",    [])
-
-        candles = []
-        for i, ts in enumerate(timestamps):
-            candles.append({
-                "time":   ts,
-                "open":   opens[i]  if i < len(opens)  else 0,
-                "high":   highs[i]  if i < len(highs)  else 0,
-                "low":    lows[i]   if i < len(lows)   else 0,
-                "close":  closes[i] if i < len(closes) else 0,
-                "volume": volumes[i] if i < len(volumes) else 0,
-            })
-
-        candles = _filter_market_hours(candles, interval)
+        candles = apply_interval_transform(_dhan_parse_candles(resp.json()), cfg, _filter_market_hours)
         return jsonify({"success": True, "candles": candles, "count": len(candles)})
 
     except http.exceptions.HTTPError as e:
@@ -1175,7 +1354,7 @@ def fp_instruments_search():
 
 @app.route("/api/5paisa/chart/data", methods=["POST"])
 def fp_chart_data():
-    if not session.get("5paisa_connected"):
+    if not _ensure_fp_session():
         return jsonify({"success": False, "message": "Not connected. Please connect to 5Paisa first."}), 401
 
     creds       = load_credentials()
@@ -1192,6 +1371,8 @@ def fp_chart_data():
     from_date  = payload.get("from_date", "")
     to_date    = payload.get("to_date", "")
     symbol     = (payload.get("trading_symbol") or payload.get("symbol") or "").strip()
+    cfg        = _interval_cfg("5paisa", interval)
+    source     = cfg.get("source") or interval
 
     if not scrip_code:
         return jsonify({"success": False, "message": "scrip_code is required."}), 400
@@ -1203,17 +1384,14 @@ def fp_chart_data():
     if not to_date:
         to_date = today.strftime("%Y-%m-%d")
     if not from_date:
-        if interval == "D":
-            from_date = (today - timedelta(days=365)).strftime("%Y-%m-%d")
-        else:
-            from_date = (today - timedelta(days=4)).strftime("%Y-%m-%d")
+        from_date = _chart_default_from(interval, "5paisa")
 
     try:
         candles = fp.get_historical_data(
-            access_token, exch, exch_type, scrip_code, interval, from_date, to_date,
-            symbol=symbol, **_datafeed_opts(),
+            access_token, exch, exch_type, scrip_code, source, from_date, to_date,
+            symbol=symbol, timeout=40, **_datafeed_opts(),
         )
-        candles = _filter_market_hours(candles, interval)
+        candles = apply_interval_transform(candles, cfg, _filter_market_hours)
         return jsonify({"success": True, "candles": candles, "count": len(candles)})
     except http.exceptions.HTTPError as e:
         status = e.response.status_code if e.response is not None else 500
@@ -1226,6 +1404,348 @@ def fp_chart_data():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+def _yahoo_base_url():
+    s = load_app_settings()
+    url = (s.get("yahoo_base_url") or yf_broker.DEFAULT_BASE_URL).strip()
+    return url or yf_broker.DEFAULT_BASE_URL
+
+
+def _cdc_use_yahoo():
+    s = load_app_settings()
+    yahoo_on = bool(s.get("yahoo_enabled"))
+    fp_on = s.get("5paisa_enabled", True) is not False
+    fp_token = load_credentials().get("5paisa", {}).get("access_token", "").strip()
+    return yahoo_on and (not fp_on or not fp_token)
+
+
+def _resolve_yahoo_symbol(symbol):
+    return yf_broker.lookup_instrument(symbol)
+
+
+def _yahoo_price_fetcher(interval, from_date, to_date):
+    base = _yahoo_base_url()
+
+    def fetch(inst):
+        ysym = (inst or {}).get("yahoo_symbol") or ""
+        return yf_broker.get_historical_data(
+            ysym, interval, from_date, to_date, base_url=base, timeout=60,
+        )
+    return fetch
+
+
+# ---------- Yahoo Finance ----------
+
+@app.route("/api/yahoo/save", methods=["POST"])
+def yahoo_save():
+    body = request.get_json(force=True) or {}
+    url = str(body.get("base_url") or "").strip() or yf_broker.DEFAULT_BASE_URL
+    for token in ("{YahooStockSymbol}", "{UTCStartDTM}", "{UTCEndDTM}", "{Interval}"):
+        if token not in url:
+            return jsonify({
+                "success": False,
+                "message": "Base URL must include " + token + ".",
+            }), 400
+    s = load_app_settings()
+    s["yahoo_base_url"] = url
+    save_app_settings(s)
+    return jsonify({"success": True, "message": "Yahoo Finance Base URL saved.", "yahoo_base_url": url})
+
+
+@app.route("/api/yahoo/connect", methods=["POST"])
+def yahoo_connect():
+    if not os.path.exists(yf_broker.YAHOO_LIST_CSV):
+        return jsonify({
+            "success": False,
+            "message": "Yahoo Stock List.csv not found in the app folder.",
+        }), 400
+    rows = yf_broker.list_instruments()
+    if not rows:
+        return jsonify({
+            "success": False,
+            "message": "Yahoo Stock List.csv is empty or missing Instrument / YahooStockSymbol columns.",
+        }), 400
+    return jsonify({
+        "success": True,
+        "message": "Yahoo Finance ready. {} symbols loaded.".format(len(rows)),
+        "count": len(rows),
+        "yahoo_base_url": _yahoo_base_url(),
+    })
+
+
+@app.route("/api/yahoo/instruments/search")
+def yahoo_instruments_search():
+    q = request.args.get("q", "").strip()
+    limit = int(request.args.get("limit", 15))
+    if len(q) < 2:
+        return jsonify([])
+    return jsonify(yf_broker.search_instruments(q, limit=limit))
+
+
+@app.route("/api/yahoo/chart/data", methods=["POST"])
+def yahoo_chart_data():
+    s = load_app_settings()
+    if not s.get("yahoo_enabled"):
+        return jsonify({"success": False, "message": "Yahoo Finance is disabled in Settings."}), 400
+    payload = request.get_json(force=True) or {}
+    yahoo_symbol = (payload.get("yahoo_symbol") or payload.get("scrip_code") or "").strip()
+    trading_symbol = (payload.get("trading_symbol") or payload.get("symbol") or "").strip()
+    interval = payload.get("interval", "D")
+    from_date = payload.get("from_date", "")
+    to_date = payload.get("to_date", "")
+    cfg = _interval_cfg("yahoo", interval)
+    source = cfg.get("source") or interval
+    if not yahoo_symbol and trading_symbol:
+        rec = yf_broker.lookup_instrument(trading_symbol)
+        yahoo_symbol = (rec or {}).get("yahoo_symbol") or ""
+    if not yahoo_symbol:
+        return jsonify({"success": False, "message": "YahooStockSymbol is required."}), 400
+    today = datetime.today()
+    if not to_date:
+        to_date = today.strftime("%Y-%m-%d")
+    if not from_date:
+        from_date = _chart_default_from(interval, "yahoo")
+        if str(source) == "1":
+            cap = (today - timedelta(days=yf_broker.MAX_1M_DAYS)).strftime("%Y-%m-%d")
+            if from_date < cap:
+                from_date = cap
+        elif str(source) in ("25", "30"):
+            cap = (today - timedelta(days=yf_broker.MAX_30M_DAYS)).strftime("%Y-%m-%d")
+            if from_date < cap:
+                from_date = cap
+    try:
+        candles = yf_broker.get_historical_data(
+            yahoo_symbol, source, from_date, to_date,
+            base_url=_yahoo_base_url(), timeout=40,
+        )
+        candles = apply_interval_transform(candles, cfg, None)
+        return jsonify({"success": True, "candles": candles, "count": len(candles)})
+    except http.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 500
+        return jsonify({"success": False, "message": str(e)}), status
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+def _sanitize_excel_config(raw, fallback_id=""):
+    if not isinstance(raw, dict):
+        return None
+    name = str(raw.get("name") or "").strip()[:80]
+    if not name:
+        return None
+    cid = str(raw.get("id") or fallback_id or uuid.uuid4()).strip() or str(uuid.uuid4())
+    try:
+        header_row = int(raw.get("header_row") or 0)
+    except (TypeError, ValueError):
+        header_row = 0
+    header_row = max(0, min(header_row, 20000))
+    try:
+        poll = int(raw.get("poll_seconds") or 5)
+    except (TypeError, ValueError):
+        poll = 5
+    poll = max(1, min(poll, 3600))
+    mapping_in = raw.get("mapping") if isinstance(raw.get("mapping"), dict) else {}
+    mapping = {}
+    for key in ("date", "open", "high", "low", "close", "volume"):
+        mapping[key] = str(mapping_in.get(key) or "").strip()[:80]
+    indicators = []
+    seen = set()
+    for item in (raw.get("indicators") or []):
+        if not isinstance(item, dict):
+            continue
+        iname = str(item.get("name") or "").strip()[:40]
+        col = str(item.get("column") or "").strip()[:80]
+        if not iname or not col:
+            continue
+        key = iname.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        indicators.append({"name": iname, "column": col})
+        if len(indicators) >= 16:
+            break
+    return {
+        "id": cid,
+        "name": name,
+        "workbook": str(raw.get("workbook") or "").strip()[:200],
+        "sheet": str(raw.get("sheet") or "").strip()[:120],
+        "header_row": header_row,
+        "poll_seconds": poll,
+        "mapping": mapping,
+        "indicators": indicators,
+    }
+
+
+def _excel_configs():
+    s = load_app_settings()
+    out = []
+    seen = set()
+    for item in (s.get("excel_configs") or []):
+        cfg = _sanitize_excel_config(item)
+        if not cfg:
+            continue
+        if cfg["id"] in seen:
+            cfg["id"] = str(uuid.uuid4())
+        seen.add(cfg["id"])
+        out.append(cfg)
+    return out
+
+
+@app.route("/api/excel/workbooks")
+def excel_workbooks():
+    try:
+        names = xl_broker.list_workbooks()
+        return jsonify({"success": True, "workbooks": names})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e), "workbooks": []}), 400
+
+
+@app.route("/api/excel/sheets")
+def excel_sheets():
+    workbook = request.args.get("workbook", "").strip()
+    try:
+        sheets = xl_broker.list_sheets(workbook)
+        return jsonify({"success": True, "sheets": sheets})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e), "sheets": []}), 400
+
+
+@app.route("/api/excel/preview", methods=["POST"])
+def excel_preview():
+    body = request.get_json(force=True) or {}
+    try:
+        data = xl_broker.preview_sheet(
+            body.get("workbook") or "",
+            body.get("sheet") or "",
+            body.get("header_row"),
+        )
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+
+@app.route("/api/excel/configs", methods=["GET", "POST"])
+def excel_configs():
+    if request.method == "GET":
+        return jsonify({"success": True, "configs": _excel_configs()})
+    body = request.get_json(force=True) or {}
+    raw_list = body.get("configs")
+    if raw_list is None and isinstance(body.get("config"), dict):
+        existing = {c["id"]: c for c in _excel_configs()}
+        one = _sanitize_excel_config(body.get("config"))
+        if not one:
+            return jsonify({"success": False, "message": "Config name is required."}), 400
+        existing[one["id"]] = one
+        raw_list = list(existing.values())
+    if not isinstance(raw_list, list):
+        return jsonify({"success": False, "message": "configs must be a list."}), 400
+    cleaned = []
+    seen = set()
+    for item in raw_list[:40]:
+        cfg = _sanitize_excel_config(item)
+        if not cfg:
+            continue
+        if cfg["id"] in seen:
+            cfg["id"] = str(uuid.uuid4())
+        seen.add(cfg["id"])
+        cleaned.append(cfg)
+    s = load_app_settings()
+    s["excel_configs"] = cleaned
+    save_app_settings(s)
+    return jsonify({"success": True, "configs": cleaned})
+
+
+@app.route("/api/excel/configs/<config_id>", methods=["DELETE"])
+def excel_config_delete(config_id):
+    want = str(config_id or "").strip()
+    cleaned = [c for c in _excel_configs() if c["id"] != want]
+    s = load_app_settings()
+    s["excel_configs"] = cleaned
+    save_app_settings(s)
+    return jsonify({"success": True, "configs": cleaned})
+
+
+@app.route("/api/excel/connect", methods=["POST"])
+def excel_connect():
+    s = load_app_settings()
+    if not s.get("excel_enabled"):
+        return jsonify({"success": False, "message": "Excel is disabled in Settings."}), 400
+    try:
+        names = xl_broker.list_workbooks()
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    ncfg = len(_excel_configs())
+    return jsonify({
+        "success": True,
+        "message": "Excel ready. {} open workbook(s), {} saved config(s).".format(len(names), ncfg),
+        "workbooks": names,
+        "count": ncfg,
+    })
+
+
+@app.route("/api/excel/instruments/search")
+def excel_instruments_search():
+    q = request.args.get("q", "").strip()
+    limit = int(request.args.get("limit", 20))
+    return jsonify(xl_broker.search_configs(_excel_configs(), q, limit=limit))
+
+
+@app.route("/api/excel/chart/data", methods=["POST"])
+def excel_chart_data():
+    s = load_app_settings()
+    if not s.get("excel_enabled"):
+        return jsonify({"success": False, "message": "Excel is disabled in Settings."}), 400
+    payload = request.get_json(force=True) or {}
+    config_id = (payload.get("config_id") or payload.get("excel_config_id")
+                 or payload.get("scrip_code") or payload.get("trading_symbol") or "").strip()
+    cfg = xl_broker.find_config(_excel_configs(), config_id)
+    if not cfg:
+        return jsonify({"success": False, "message": "Excel config not found. Save it on Connect to Broker first."}), 400
+    try:
+        data = xl_broker.get_chart_data(cfg)
+        interval = str(payload.get("interval") or "1")
+        candles = data.get("candles") or []
+        overlays = data.get("overlays") or []
+        data["candles"] = combine_candles_to_interval(candles, interval)
+        data["overlays"] = combine_overlays_to_interval(overlays, interval, candles)
+        data["count"] = len(data["candles"])
+        data["interval"] = interval
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+
+# ---------- Python custom indicators ----------
+
+@app.route("/api/custom-indicators", methods=["GET"])
+def custom_indicators_catalog():
+    return jsonify({"success": True, "indicators": py_ind_catalog()})
+
+
+@app.route("/api/custom-indicators/compute", methods=["POST"])
+def custom_indicators_compute():
+    body = request.get_json(force=True) or {}
+    ind_id = str(body.get("id") or "").strip()
+    if not ind_id:
+        return jsonify({"success": False, "message": "id is required."}), 400
+    candles = body.get("candles")
+    if not isinstance(candles, list):
+        return jsonify({"success": False, "message": "candles must be a list."}), 400
+    if len(candles) > 25000:
+        candles = candles[-25000:]
+    params = body.get("params") if isinstance(body.get("params"), dict) else {}
+    try:
+        result = py_ind_compute(ind_id, candles, params)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 404
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+    if not isinstance(result, dict):
+        result = {"result": result}
+    out = {"success": True, "id": ind_id}
+    out.update(result)
+    return jsonify(out)
+
+
 # ---------- Settings API ----------
 
 @app.route("/api/settings", methods=["GET"])
@@ -1235,7 +1755,18 @@ def get_settings():
         "api_enabled": s.get("api_enabled", False),
         "dhan_enabled": s.get("dhan_enabled", True),
         "5paisa_enabled": s.get("5paisa_enabled", True),
+        "yahoo_enabled": s.get("yahoo_enabled", False),
+        "yahoo_base_url": (s.get("yahoo_base_url") or yf_broker.DEFAULT_BASE_URL).strip() or yf_broker.DEFAULT_BASE_URL,
+        "excel_enabled": s.get("excel_enabled", False),
+        "excel_configs": _excel_configs(),
         "chart_refresh_interval": int(s.get("chart_refresh_interval", 0) or 0),
+        "broker_intervals": s.get("broker_intervals") or default_broker_intervals(),
+        "broker_native_intervals": {
+            "dhan": native_catalog("dhan"),
+            "5paisa": native_catalog("5paisa"),
+            "yahoo": native_catalog("yahoo"),
+        },
+        "interval_resample_options": list(RESAMPLE_OPTIONS),
     })
 
 
@@ -1257,11 +1788,17 @@ def set_broker_settings():
         s["dhan_enabled"] = bool(body.get("dhan_enabled"))
     if "5paisa_enabled" in body:
         s["5paisa_enabled"] = bool(body.get("5paisa_enabled"))
+    if "yahoo_enabled" in body:
+        s["yahoo_enabled"] = bool(body.get("yahoo_enabled"))
+    if "excel_enabled" in body:
+        s["excel_enabled"] = bool(body.get("excel_enabled"))
     save_app_settings(s)
     return jsonify({
         "success": True,
         "dhan_enabled": s.get("dhan_enabled", True),
         "5paisa_enabled": s.get("5paisa_enabled", True),
+        "yahoo_enabled": s.get("yahoo_enabled", False),
+        "excel_enabled": s.get("excel_enabled", False),
     })
 
 
@@ -1277,6 +1814,95 @@ def set_chart_settings():
     s["chart_refresh_interval"] = refresh_ms
     save_app_settings(s)
     return jsonify({"success": True, "chart_refresh_interval": refresh_ms})
+
+
+@app.route("/api/settings/intervals", methods=["POST"])
+def set_broker_intervals():
+    body = request.get_json(force=True) or {}
+    broker = str(body.get("broker") or "").strip().lower()
+    if broker not in ("dhan", "5paisa", "yahoo"):
+        return jsonify({"success": False, "message": "broker must be dhan, 5paisa, or yahoo."}), 400
+    rows = normalize_broker_intervals(body.get("intervals"), broker)
+    s = load_app_settings()
+    intervals = dict(s.get("broker_intervals") or default_broker_intervals())
+    intervals[broker] = rows
+    s["broker_intervals"] = normalize_all_intervals(intervals)
+    save_app_settings(s)
+    return jsonify({
+        "success": True,
+        "broker": broker,
+        "intervals": s["broker_intervals"][broker],
+        "broker_intervals": s["broker_intervals"],
+    })
+
+
+def _sanitize_chart_overlays(raw):
+    cleaned = []
+    if not isinstance(raw, list):
+        return cleaned
+    for item in raw[:80]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()[:64]
+        points = item.get("points")
+        if not name or not isinstance(points, list) or not points:
+            continue
+        pts = []
+        for p in points[:12]:
+            if not isinstance(p, dict):
+                continue
+            pt = {}
+            if p.get("timestamp") is not None:
+                try:
+                    pt["timestamp"] = int(float(p["timestamp"]))
+                except (TypeError, ValueError):
+                    pass
+            if p.get("value") is not None:
+                try:
+                    pt["value"] = float(p["value"])
+                except (TypeError, ValueError):
+                    pass
+            if p.get("dataIndex") is not None:
+                try:
+                    pt["dataIndex"] = int(float(p["dataIndex"]))
+                except (TypeError, ValueError):
+                    pass
+            if "timestamp" not in pt and "dataIndex" not in pt and "value" not in pt:
+                continue
+            pts.append(pt)
+        if not pts:
+            continue
+        cleaned.append({
+            "name": name,
+            "points": pts,
+            "extendData": item.get("extendData"),
+        })
+    return cleaned
+
+
+@app.route("/api/settings/chart-drawings", methods=["GET", "POST"])
+def chart_drawings():
+    s = load_app_settings()
+    drawings = s.get("chart_drawings")
+    if not isinstance(drawings, dict):
+        drawings = {}
+    if request.method == "GET":
+        key = str(request.args.get("key") or "").strip()
+        if key:
+            return jsonify({"success": True, "key": key, "overlays": drawings.get(key) or []})
+        return jsonify({"success": True, "drawings": drawings})
+    body = request.get_json(force=True) or {}
+    key = str(body.get("key") or "").strip()[:160]
+    if not key:
+        return jsonify({"success": False, "message": "key required"}), 400
+    overlays = _sanitize_chart_overlays(body.get("overlays"))
+    if overlays:
+        drawings[key] = overlays
+    else:
+        drawings.pop(key, None)
+    s["chart_drawings"] = drawings
+    save_app_settings(s)
+    return jsonify({"success": True, "count": len(overlays)})
 
 
 @app.route("/api/settings/markets", methods=["GET", "POST"])
@@ -1364,9 +1990,23 @@ def indicator_settings():
     if "ta_indicators" in body:
         indicators = body.get("ta_indicators")
         if isinstance(indicators, list):
+            custom_ok = {m["id"]: m for m in _custom_api_catalog()}
             cleaned = []
             for ind in indicators:
                 if not isinstance(ind, dict):
+                    continue
+                source = str(ind.get("source") or "builtin").strip().lower()
+                if source == "custom":
+                    ind_type = str(ind.get("type", "")).strip()
+                    if not ind_type or ind_type not in custom_ok:
+                        continue
+                    params = ind.get("params", {}) if isinstance(ind.get("params", {}), dict) else {}
+                    cleaned.append({
+                        "id": str(ind.get("id", "")).strip() or ind_type,
+                        "type": ind_type,
+                        "source": "custom",
+                        "params": params,
+                    })
                     continue
                 ind_type = str(ind.get("type", "")).strip().lower()
                 if not ind_type or ind_type not in TA_CATALOG:
@@ -1375,6 +2015,7 @@ def indicator_settings():
                 cleaned.append({
                     "id": str(ind.get("id", "")).strip() or ind_type,
                     "type": ind_type,
+                    "source": "builtin",
                     "params": params,
                 })
             s["ta_indicators"] = cleaned
@@ -1391,7 +2032,11 @@ def indicator_settings():
 def public_ta_catalog():
     if request.method == "OPTIONS":
         return _cors(make_response("", 204))
-    return _cors(make_response(jsonify({"success": True, "indicators": TA_CATALOG}), 200))
+    return _cors(make_response(jsonify({
+        "success": True,
+        "indicators": TA_CATALOG,
+        "custom_indicators": _custom_api_catalog(),
+    }), 200))
 
 
 # ---------- Public API (for external apps) ----------
@@ -1512,7 +2157,7 @@ def _filter_market_hours(candles, interval):
     """Keep intraday candles within 09:15-15:30 IST.
     Also keep candles after 15:30 if volume > 0.
     Candles before 09:15 are always dropped."""
-    if interval == "D":
+    if interval in ("D", "W", "M", "Q", "Y"):
         return candles
     result = []
     for c in candles:
@@ -1684,26 +2329,108 @@ def _atr(highs, lows, closes, period):
     return _ema(tr, period)
 
 
+def _custom_api_catalog():
+    items = []
+    for meta in py_ind_catalog():
+        if not meta.get("api"):
+            continue
+        items.append(meta)
+    return items
+
+
 def _normalize_ta_indicators(raw_indicators):
     out = []
     for ind in raw_indicators or []:
         if not isinstance(ind, dict):
             continue
-        ind_type = str(ind.get("type", "")).strip().lower()
+        source = str(ind.get("source") or "builtin").strip().lower()
+        ind_type = str(ind.get("type", "")).strip()
+        if source != "custom":
+            ind_type = ind_type.lower()
         if not ind_type:
             continue
         params = ind.get("params", {}) if isinstance(ind.get("params", {}), dict) else {}
         out.append({
             "id": str(ind.get("id", "")).strip() or ind_type,
             "type": ind_type,
+            "source": "custom" if source == "custom" else "builtin",
             "params": params,
         })
     return out
 
 
+def _candles_for_custom_ta(candles):
+    out = []
+    for c in candles:
+        row = dict(c)
+        if "timestamp" not in row and row.get("time") is not None:
+            row["timestamp"] = row["time"]
+        out.append(row)
+    return out
+
+
+def _apply_custom_ta_indicator(candles, ind):
+    """Attach line-series values as separate candle fields. Returns field names."""
+    ind_id = ind["id"]
+    ind_type = ind["type"]
+    params = ind.get("params") or {}
+    try:
+        result = py_ind_compute(ind_type, _candles_for_custom_ta(candles), params)
+    except Exception:
+        return []
+    if not isinstance(result, dict):
+        return []
+
+    def _set_field(field, vals, times=None):
+        tmap = None
+        if isinstance(times, list) and isinstance(vals, list) and len(times) == len(vals):
+            tmap = {}
+            for i, ts in enumerate(times):
+                try:
+                    tmap[int(ts)] = vals[i]
+                except (TypeError, ValueError):
+                    continue
+        for i, candle in enumerate(candles):
+            if tmap is not None:
+                ts = candle.get("time", candle.get("timestamp"))
+                try:
+                    candle[field] = tmap.get(int(ts))
+                except (TypeError, ValueError):
+                    candle[field] = None
+            else:
+                candle[field] = vals[i] if isinstance(vals, list) and i < len(vals) else None
+
+    series = result.get("series")
+    plot = result.get("plot") if isinstance(result.get("plot"), list) else []
+    times = result.get("times") if isinstance(result.get("times"), list) else None
+    stats = result.get("stats") if isinstance(result.get("stats"), dict) else {}
+    field_ids = []
+    if isinstance(series, dict) and series:
+        for i, (key, vals) in enumerate(series.items()):
+            enabled = True
+            if i < len(plot):
+                enabled = bool(plot[i])
+            elif key in stats:
+                enabled = bool(stats[key])
+            if not enabled or not isinstance(vals, list):
+                continue
+            field = f"{ind_id}_{key}"
+            field_ids.append(field)
+            _set_field(field, vals, times)
+        return field_ids
+
+    for key in ("values", "line", "data"):
+        vals = result.get(key)
+        if isinstance(vals, list):
+            field_ids.append(ind_id)
+            _set_field(ind_id, vals, times)
+            return field_ids
+    return []
+
+
 def _apply_ta_indicators(candles, indicators):
     if not candles or not indicators:
-        return candles
+        return candles, []
 
     closes = [_to_float(c.get("close", 0.0)) for c in candles]
     highs = [_to_float(c.get("high", 0.0)) for c in candles]
@@ -1713,7 +2440,11 @@ def _apply_ta_indicators(candles, indicators):
     def p(params, name, default):
         return int(_to_float(params.get(name, default), default))
 
+    applied_fields = []
     for ind in indicators:
+        if ind.get("source") == "custom":
+            applied_fields.extend(_apply_custom_ta_indicator(candles, ind))
+            continue
         ind_type = ind["type"]
         ind_id = ind["id"]
         params = ind.get("params", {})
@@ -1824,8 +2555,9 @@ def _apply_ta_indicators(candles, indicators):
 
         for i, candle in enumerate(candles):
             candle[ind_id] = values[i]
+        applied_fields.append(ind_id)
 
-    return candles
+    return candles, applied_fields
 
 
 @app.route("/public/api/5paisa/historical", methods=["GET", "OPTIONS"])
@@ -1987,8 +2719,7 @@ def public_fp_historical():
             ta_enabled = bool(s.get("ta_enabled", False))
             ta_indicators = _normalize_ta_indicators(s.get("ta_indicators", []))
             if ta_enabled and ta_indicators:
-                candles = _apply_ta_indicators(candles, ta_indicators)
-                applied_ta_ids = [x["id"] for x in ta_indicators]
+                candles, applied_ta_ids = _apply_ta_indicators(candles, ta_indicators)
 
         field_codes = [f.strip().upper() for f in fields_param.split(",") if f.strip()] if fields_param else ["DTM", "O", "H", "L", "C", "V"]
 
@@ -2051,7 +2782,7 @@ _CDC_MAX_DAYS = {
     "25": 90,
     "15": 60,
     "5":  30,
-    "1":  7,
+    "1":  8,
 }
 _CDC_DEFAULT_DAYS = {
     "D":  730,
@@ -2083,6 +2814,11 @@ def _cdc_normalize_range(interval, from_date, to_date, rolling_window=None):
 
     max_days = _CDC_MAX_DAYS.get(interval, 30)
     default_days = _CDC_DEFAULT_DAYS.get(interval, 30)
+    if _cdc_use_yahoo():
+        if interval == "1":
+            max_days = min(max_days, yf_broker.MAX_1M_DAYS)
+        elif interval in ("25", "30"):
+            max_days = min(max_days, yf_broker.MAX_30M_DAYS)
     try:
         from_d = datetime.strptime(str(from_date)[:10], "%Y-%m-%d").date() if from_date else (to_d - timedelta(days=default_days))
     except ValueError:
@@ -2096,6 +2832,15 @@ def _cdc_normalize_range(interval, from_date, to_date, rolling_window=None):
     if span > max_days:
         from_d = to_d - timedelta(days=max_days)
         clamped = True
+    if _cdc_use_yahoo() and interval in ("25", "30"):
+        earliest = today - timedelta(days=yf_broker.MAX_30M_DAYS)
+        if from_d < earliest:
+            from_d = earliest
+            clamped = True
+        if to_d < earliest:
+            to_d = today
+            from_d = earliest
+            clamped = True
     if from_d > to_d:
         from_d = to_d
 
@@ -2126,21 +2871,29 @@ def _cdc_normalize_range(interval, from_date, to_date, rolling_window=None):
 @app.route("/api/analysis/cdc/scan", methods=["POST"])
 def cdc_scan_start():
     """Start a Correlation Density scan in the background."""
-    creds        = load_credentials()
-    access_token = creds.get("5paisa", {}).get("access_token", "").strip()
-    if not access_token:
-        return jsonify({"success": False,
-                        "message": "5Paisa not connected. Connect first."}), 401
-
-    # Symbol resolution needs the scrip master; load it if missing
-    if not _fp_instruments:
-        if _fp_instruments_loading:
+    use_yahoo = _cdc_use_yahoo()
+    access_token = ""
+    resolver = _resolve_symbol
+    fetcher = None
+    if use_yahoo:
+        if not yf_broker.list_instruments():
             return jsonify({"success": False,
-                            "message": "Scrip master still loading, try again shortly."}), 503
-        _load_fp_instruments()
+                            "message": "Yahoo Stock List.csv missing or empty."}), 400
+        resolver = _resolve_yahoo_symbol
+    else:
+        creds = load_credentials()
+        access_token = creds.get("5paisa", {}).get("access_token", "").strip()
+        if not access_token:
+            return jsonify({"success": False,
+                            "message": "5Paisa not connected. Connect first."}), 401
         if not _fp_instruments:
-            return jsonify({"success": False,
-                            "message": "Could not load scrip master."}), 503
+            if _fp_instruments_loading:
+                return jsonify({"success": False,
+                                "message": "Scrip master still loading, try again shortly."}), 503
+            _load_fp_instruments()
+            if not _fp_instruments:
+                return jsonify({"success": False,
+                                "message": "Could not load scrip master."}), 503
 
     body  = request.get_json(force=True) or {}
     interval = str(body.get("interval", "D")).strip()
@@ -2177,7 +2930,10 @@ def cdc_scan_start():
         return jsonify({"success": False,
                         "message": "Sector.csv missing or empty. Add Instrument,Sector rows."}), 400
 
-    started = _scan_manager.start(access_token, _resolve_symbol, sectors, params)
+    started = _scan_manager.start(
+        access_token, resolver, sectors, params,
+        fetcher=_yahoo_price_fetcher(interval, rng["from_date"], rng["to_date"]) if use_yahoo else None,
+    )
     if not started:
         return jsonify({"success": False,
                         "message": "A scan is already running."}), 409
@@ -2322,21 +3078,63 @@ def open_interest_change():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/gamma-exposure", methods=["POST"])
+def gamma_exposure():
+    """
+    GEX profile, gamma flip, regime score, and strategy signal.
+
+    Body: { symbol, expiry?, strike_window? }
+    Live when 5Paisa is connected; otherwise a sample NIFTY-style profile.
+    """
+    body = request.get_json(force=True) or {}
+    symbol = str(body.get("symbol") or "NIFTY").strip().upper() or "NIFTY"
+    expiry = str(body.get("expiry") or "").strip()[:10]
+    try:
+        strike_window = int(body.get("strike_window", 18))
+    except (TypeError, ValueError):
+        strike_window = 18
+    creds = load_credentials().get("5paisa", {})
+    try:
+        data = build_gamma_exposure(
+            symbol=symbol,
+            expiry=expiry,
+            creds=creds,
+            strike_window=strike_window,
+        )
+        data["success"] = True
+        return jsonify(data)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    except Exception as e:
+        app.logger.exception("gamma-exposure failed")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/analysis/cdc/pair-detail", methods=["POST"])
 def cdc_pair_detail():
     """Full time-series dashboard payload for one pair."""
-    creds        = load_credentials()
-    access_token = creds.get("5paisa", {}).get("access_token", "").strip()
-    if not access_token:
-        return jsonify({"success": False,
-                        "message": "5Paisa not connected. Connect first."}), 401
-    if not _fp_instruments:
-        if _fp_instruments_loading:
+    use_yahoo = _cdc_use_yahoo()
+    access_token = ""
+    resolver = _resolve_symbol
+    fetcher = None
+    if use_yahoo:
+        if not yf_broker.list_instruments():
             return jsonify({"success": False,
-                            "message": "Scrip master still loading, try again shortly."}), 503
-        _load_fp_instruments()
+                            "message": "Yahoo Stock List.csv missing or empty."}), 400
+        resolver = _resolve_yahoo_symbol
+    else:
+        creds = load_credentials()
+        access_token = creds.get("5paisa", {}).get("access_token", "").strip()
+        if not access_token:
+            return jsonify({"success": False,
+                            "message": "5Paisa not connected. Connect first."}), 401
         if not _fp_instruments:
-            return jsonify({"success": False, "message": "Could not load scrip master."}), 503
+            if _fp_instruments_loading:
+                return jsonify({"success": False,
+                                "message": "Scrip master still loading, try again shortly."}), 503
+            _load_fp_instruments()
+            if not _fp_instruments:
+                return jsonify({"success": False, "message": "Could not load scrip master."}), 503
 
     body = request.get_json(force=True) or {}
     sym1 = str(body.get("instrument1", "")).strip().upper()
@@ -2374,8 +3172,11 @@ def cdc_pair_detail():
     )
 
     try:
-        cache = PriceCache(access_token, _resolve_symbol, params.interval,
-                           params.from_date, params.to_date, max_workers=2)
+        cache = PriceCache(
+            access_token, resolver, params.interval,
+            params.from_date, params.to_date, max_workers=2,
+            fetcher=_yahoo_price_fetcher(params.interval, params.from_date, params.to_date) if use_yahoo else None,
+        )
         cache.prefetch([sym1, sym2])
         d1, d2 = cache.get(sym1), cache.get(sym2)
         if d1 is None:
@@ -2396,6 +3197,42 @@ def cdc_pair_detail():
         return jsonify({"success": False, "message": str(e)}), 422
     except Exception as e:
         app.logger.exception("pair-detail failed")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/analysis/cdc/pair-live", methods=["POST"])
+def cdc_pair_live():
+    """Live LTPs + min-capital equal-notional hedge (cash and futures lots)."""
+    creds = load_credentials()
+    if not creds.get("5paisa", {}).get("access_token", "").strip():
+        return jsonify({"success": False,
+                        "message": "5Paisa not connected. Connect first."}), 401
+    body = request.get_json(force=True) or {}
+    sym1 = str(body.get("instrument1", "")).strip().upper()
+    sym2 = str(body.get("instrument2", "")).strip().upper()
+    if not sym1 or not sym2:
+        return jsonify({"success": False,
+                        "message": "instrument1 and instrument2 are required."}), 400
+
+    def _px(key):
+        try:
+            v = float(body.get(key))
+        except (TypeError, ValueError):
+            return None
+        if v != v or v <= 0:
+            return None
+        return v
+
+    try:
+        data = build_pair_live(
+            creds, sym1, sym2,
+            sell_symbol=str(body.get("sell_symbol") or "").strip().upper(),
+            last_close1=_px("last_close1"),
+            last_close2=_px("last_close2"),
+        )
+        return jsonify(data)
+    except Exception as e:
+        app.logger.exception("pair-live failed")
         return jsonify({"success": False, "message": str(e)}), 500
 
 

@@ -9,7 +9,7 @@
     document.documentElement.setAttribute("data-theme",
       localStorage.getItem("app_theme") === "light" ? "light" : "dark");
   </script>
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v=yf1" />
 </head>
 <body>
 
@@ -46,20 +46,33 @@
           <span class="nav-icon">📊</span> Correlation Density Curve
         </a>
       </li>
-      <li>
-        <a class="nav-item" data-page="option-chain" href="#">
-          <span class="nav-icon">⛓️</span> Option Chain
-        </a>
-      </li>
-      <li>
-        <a class="nav-item" data-page="open-interest" href="#">
-          <span class="nav-icon">📉</span> Open Interest
-        </a>
-      </li>
-      <li>
-        <a class="nav-item" data-page="option-strategy" href="#">
-          <span class="nav-icon">📐</span> Option Strategy Builder
-        </a>
+      <li class="nav-accordion{% if yahoo_enabled and not dhan_enabled and not fp_enabled %} nav-disabled{% endif %}">
+        <button type="button" class="nav-item nav-parent" id="nav-option-analysis" aria-expanded="false">
+          <span class="nav-icon">📑</span> Option Analysis
+          <span class="nav-chevron">▾</span>
+        </button>
+        <ul class="nav-sublist">
+          <li>
+            <a class="nav-item nav-subitem" data-page="option-chain" href="#">
+              <span class="nav-icon">⛓️</span> Option Chain
+            </a>
+          </li>
+          <li>
+            <a class="nav-item nav-subitem" data-page="open-interest" href="#">
+              <span class="nav-icon">📉</span> Open Interest
+            </a>
+          </li>
+          <li>
+            <a class="nav-item nav-subitem" data-page="gamma-exposure" href="#">
+              <span class="nav-icon">γ</span> Gamma Exposure
+            </a>
+          </li>
+          <li>
+            <a class="nav-item nav-subitem" data-page="option-strategy" href="#">
+              <span class="nav-icon">📐</span> Option Strategy Builder
+            </a>
+          </li>
+        </ul>
       </li>
       <li class="nav-group-label">App</li>
       <li>
@@ -78,8 +91,10 @@
       <section class="card chart-card">
         <div class="chart-toolbar">
           <div class="chart-broker-tabs" id="chart-broker-tabs">
-            <button class="cbrok-btn" data-cbrok="dhan">Dhan</button>
-            <button class="cbrok-btn active" data-cbrok="5paisa">5Paisa</button>
+            <button type="button" class="cbrok-btn" data-broker="dhan">Dhan</button>
+            <button type="button" class="cbrok-btn" data-broker="5paisa">5Paisa</button>
+            <button type="button" class="cbrok-btn" data-broker="yahoo">Yahoo</button>
+            <button type="button" class="cbrok-btn" data-broker="excel">Excel</button>
           </div>
           <div class="chart-search-wrap">
             <input type="text" id="stock-search" placeholder="Search symbol e.g. RELIANCE, NIFTY…" autocomplete="off" />
@@ -93,16 +108,215 @@
             <button class="ivl-btn" data-ivl="60">1h</button>
             <button class="ivl-btn" data-ivl="D">1D</button>
           </div>
+          <div class="chart-menu-wrap">
+            <button type="button" class="chart-tool-btn" id="btn-candle-type" title="Chart type">Candles ▾</button>
+            <div class="chart-pop chart-type-pop hidden" id="candle-type-pop"></div>
+          </div>
           <button class="btn-primary" id="load-chart-btn">Load Chart</button>
+        </div>
+        <div class="chart-tools" id="chart-tools">
+          <div class="chart-tool-group" id="chart-draw-tools"></div>
+          <div class="chart-tool-group chart-tool-menus">
+            <div class="chart-menu-wrap">
+              <button type="button" class="chart-tool-btn" id="btn-ind-menu">Indicators ▾</button>
+              <div class="chart-pop ind-pop hidden" id="ind-pop"></div>
+            </div>
+            <div class="chart-menu-wrap">
+              <button type="button" class="chart-tool-btn" id="btn-custom-menu">Custom ▾</button>
+              <div class="chart-pop hidden" id="custom-pop"></div>
+            </div>
+            <button type="button" class="chart-tool-btn" id="btn-chart-replay" title="Bar replay">Replay</button>
+            <button type="button" class="chart-tool-btn" id="btn-clear-drawings" title="Remove all drawings">Clear drawings</button>
+          </div>
         </div>
         <div id="chart-meta" class="chart-meta hidden">
           <span id="chart-symbol-label"></span>
+          <span id="chart-live-quote" class="chart-live-quote"></span>
           <span id="chart-ohlc"></span>
           <span id="live-badge" class="live-badge" style="display:none"><span id="live-dot" class="live-dot">●</span> LIVE</span>
+          <span id="replay-badge" class="replay-badge" style="display:none">REPLAY</span>
         </div>
-        <div id="chart-container"></div>
-        <div id="chart-message" class="chart-message">Select a stock and click Load Chart</div>
+        <div class="chart-stage">
+          <div id="chart-ind-legend" class="chart-ind-legend hidden"></div>
+          <div id="chart-container"></div>
+          <div id="chart-replay-hint" class="chart-replay-hint hidden">Click a candle to choose the replay starting point</div>
+          <div class="chart-nav" id="chart-nav" aria-hidden="true">
+            <button type="button" class="chart-nav-btn" data-nav="zoom-out" title="Zoom out">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </button>
+            <button type="button" class="chart-nav-btn" data-nav="zoom-in" title="Zoom in">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </button>
+            <button type="button" class="chart-nav-btn" data-nav="pan-left" title="Scroll left">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8 10 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button type="button" class="chart-nav-btn" data-nav="pan-right" title="Scroll right">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button type="button" class="chart-nav-btn" data-nav="reset" title="Reset view">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.4-3.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M13 3.2v3.3h-3.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+          <div id="chart-message" class="chart-message">Select a stock and click Load Chart</div>
+        </div>
+        <div id="chart-replay-bar" class="chart-replay-bar hidden" aria-hidden="true">
+          <button type="button" class="chart-replay-btn" id="replay-pick" title="Select starting bar">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.5h10v9H3zM8 3.5v9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2l2.4 1.3L8 9.8z" fill="currentColor"/></svg>
+          </button>
+          <button type="button" class="chart-replay-btn" id="replay-back" title="Previous bar">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 4L6 8l4.5 4M5.2 4v8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="chart-replay-btn chart-replay-play" id="replay-play" title="Play">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l8-4.5z" fill="currentColor"/></svg>
+          </button>
+          <button type="button" class="chart-replay-btn" id="replay-fwd" title="Next bar">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 4L10 8 5.5 12M10.8 4v8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="chart-menu-wrap">
+            <button type="button" class="chart-replay-speed" id="replay-speed">1x ▾</button>
+            <div class="chart-pop hidden" id="replay-speed-pop"></div>
+          </div>
+          <span class="chart-replay-clock" id="replay-clock"></span>
+          <span class="chart-replay-pos" id="replay-pos"></span>
+          <button type="button" class="chart-replay-exit" id="replay-exit">Exit</button>
+        </div>
       </section>
+
+      <div class="chart-modal-backdrop hidden" id="custom-ind-modal">
+        <div class="chart-modal">
+          <div class="chart-modal-head">
+            <h3 id="custom-ind-title">New custom indicator</h3>
+            <button type="button" class="chart-modal-close" id="custom-ind-close" title="Close">&times;</button>
+          </div>
+          <p class="settings-hint" style="margin-bottom:12px">Write a formula like TradingView. It is calculated on each candle from OHLCV.</p>
+          <div class="form-group">
+            <label for="custom-ind-name">Name</label>
+            <input type="text" id="custom-ind-name" placeholder="My SMA spread" maxlength="40" />
+          </div>
+          <div class="form-group">
+            <label for="custom-ind-formula">Formula</label>
+            <textarea id="custom-ind-formula" rows="3" placeholder="SMA(close, 20) - SMA(close, 50)"></textarea>
+          </div>
+          <div class="form-row-2">
+            <div class="form-group">
+              <label for="custom-ind-pane">Placement</label>
+              <select id="custom-ind-pane">
+                <option value="overlay">Overlay on price</option>
+                <option value="pane">Separate pane</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="custom-ind-plot">Plot style</label>
+              <select id="custom-ind-plot">
+                <option value="line">Line</option>
+                <option value="bar">Histogram</option>
+                <option value="circle">Dots</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="custom-ind-color">Color</label>
+            <input type="color" id="custom-ind-color" value="#58a6ff" />
+          </div>
+          <div class="custom-ind-help">
+            <strong>Sources:</strong> open, high, low, close, volume, hl2, hlc3, ohlc4<br />
+            <strong>Functions:</strong> SMA EMA WMA RSI STDDEV HHV LLV SUM REF CHANGE ABS MAX MIN IF<br />
+            <strong>Operators:</strong> + − * / ^ &gt; &lt; &gt;= &lt;= == != ( )<br />
+            <strong>Examples:</strong> <code>SMA(close, 20)</code> · <code>RSI(close, 14)</code> · <code>EMA(close, 12) - EMA(close, 26)</code>
+          </div>
+          <div id="custom-ind-error" class="message-box error hidden"></div>
+          <div class="btn-row" style="margin-top:14px">
+            <button type="button" class="btn-primary" id="custom-ind-save">Save &amp; add to chart</button>
+            <button type="button" class="btn-secondary" id="custom-ind-cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-modal-backdrop hidden" id="ind-settings-modal">
+        <div class="chart-modal" id="ind-settings-box" style="max-width:400px">
+          <div class="chart-modal-head">
+            <h3 id="ind-settings-title">Indicator settings</h3>
+            <button type="button" class="chart-modal-close" id="ind-settings-close" title="Close">&times;</button>
+          </div>
+          <p class="settings-hint" id="ind-settings-hint" style="margin-bottom:12px">Set the lookback in candles, then apply. You can change this anytime from Indicators.</p>
+          <div id="ind-settings-fields"></div>
+          <div class="form-group" id="ind-settings-color-wrap">
+            <label for="ind-settings-color">Color</label>
+            <input type="color" id="ind-settings-color" value="#58a6ff" />
+          </div>
+          <div class="btn-row" style="margin-top:14px">
+            <button type="button" class="btn-primary" id="ind-settings-save">Apply</button>
+            <button type="button" class="btn-secondary hidden" id="ind-settings-reset">Reset</button>
+            <button type="button" class="btn-secondary" id="ind-settings-cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-modal-backdrop hidden" id="chart-text-modal">
+        <div class="chart-modal" style="max-width:380px">
+          <div class="chart-modal-head">
+            <h3>Text</h3>
+            <button type="button" class="chart-modal-close" id="chart-text-close" title="Close">&times;</button>
+          </div>
+          <div class="form-group">
+            <label for="chart-text-input">Label</label>
+            <input type="text" id="chart-text-input" placeholder="Enter text" maxlength="120" />
+          </div>
+          <div class="form-group">
+            <label>Color</label>
+            <div class="rect-color-row">
+              <input type="color" id="chart-text-color" value="#ffffff" />
+              <div class="rect-swatches" id="chart-text-swatches">
+                <button type="button" class="rect-swatch" data-color="#ffffff" style="background:#ffffff" title="White"></button>
+                <button type="button" class="rect-swatch" data-color="#e6edf3" style="background:#e6edf3" title="Light"></button>
+                <button type="button" class="rect-swatch" data-color="#111111" style="background:#111111" title="Black"></button>
+                <button type="button" class="rect-swatch" data-color="#58a6ff" style="background:#58a6ff" title="Blue"></button>
+                <button type="button" class="rect-swatch" data-color="#3fb950" style="background:#3fb950" title="Green"></button>
+                <button type="button" class="rect-swatch" data-color="#f85149" style="background:#f85149" title="Red"></button>
+                <button type="button" class="rect-swatch" data-color="#f0883e" style="background:#f0883e" title="Orange"></button>
+                <button type="button" class="rect-swatch" data-color="#bc8cff" style="background:#bc8cff" title="Purple"></button>
+                <button type="button" class="rect-swatch" data-color="#d29922" style="background:#d29922" title="Gold"></button>
+              </div>
+            </div>
+          </div>
+          <div class="btn-row" style="margin-top:14px">
+            <button type="button" class="btn-primary" id="chart-text-ok">Save</button>
+            <button type="button" class="btn-secondary" id="chart-text-cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-modal-backdrop hidden" id="chart-rect-modal">
+        <div class="chart-modal" style="max-width:400px">
+          <div class="chart-modal-head">
+            <h3>Rectangle</h3>
+            <button type="button" class="chart-modal-close" id="chart-rect-close" title="Close">&times;</button>
+          </div>
+          <div class="form-group">
+            <label>Color</label>
+            <div class="rect-color-row">
+              <input type="color" id="chart-rect-color" value="#58a6ff" />
+              <div class="rect-swatches" id="chart-rect-swatches">
+                <button type="button" class="rect-swatch" data-color="#58a6ff" style="background:#58a6ff" title="Blue"></button>
+                <button type="button" class="rect-swatch" data-color="#3fb950" style="background:#3fb950" title="Green"></button>
+                <button type="button" class="rect-swatch" data-color="#f85149" style="background:#f85149" title="Red"></button>
+                <button type="button" class="rect-swatch" data-color="#f0883e" style="background:#f0883e" title="Orange"></button>
+                <button type="button" class="rect-swatch" data-color="#bc8cff" style="background:#bc8cff" title="Purple"></button>
+                <button type="button" class="rect-swatch" data-color="#d29922" style="background:#d29922" title="Gold"></button>
+                <button type="button" class="rect-swatch" data-color="#8b949e" style="background:#8b949e" title="Gray"></button>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="chart-rect-text">Text inside</label>
+            <textarea id="chart-rect-text" rows="3" placeholder="Optional label" maxlength="200"></textarea>
+          </div>
+          <div class="btn-row" style="margin-top:14px">
+            <button type="button" class="btn-primary" id="chart-rect-ok">Save</button>
+            <button type="button" class="btn-secondary" id="chart-rect-cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
     </div><!-- /page-home -->
 
     <!-- ══ Page: Connect to Broker ══ -->
@@ -115,6 +329,8 @@
         <div class="broker-tabs">
           <button class="tab-btn" data-broker="dhan">Dhan</button>
           <button class="tab-btn active" data-broker="5paisa">5Paisa</button>
+          <button class="tab-btn" data-broker="yahoo">Yahoo Finance</button>
+          <button class="tab-btn" data-broker="excel">Excel</button>
         </div>
 
         <!-- Dhan Panel -->
@@ -167,6 +383,55 @@
           </form>
 
           <div id="message-box" class="message-box hidden"></div>
+
+          <div class="ti-config" data-broker="dhan">
+            <button type="button" class="ti-config-toggle">
+              <span>TimeInterval configuration</span>
+              <span class="ta-collapse-btn">&#8964;</span>
+            </button>
+            <div class="ti-config-body hidden">
+              <p class="field-hint">Set lookback days for each chart interval. Add Weekly / Yearly by pointing at a native candle (e.g. 1D) and choosing how to combine it.</p>
+              <div class="ti-table-wrap"></div>
+              <div class="btn-row">
+                <button type="button" class="btn-secondary ti-add-btn">+ Add interval</button>
+                <button type="button" class="btn-primary ti-save-btn">Save intervals</button>
+              </div>
+              <div class="message-box hidden ti-msg"></div>
+            </div>
+          </div>
+
+          <div class="broker-account" id="user-info-section" {% if not connected %}style="display:none"{% endif %}>
+            <h3>Account Info</h3>
+            <div class="user-grid" id="user-grid">
+              {% if dhan_user %}
+                {% if dhan_user.client_id %}
+                <div class="info-item"><span class="info-label">Client ID</span><span class="info-value">{{ dhan_user.client_id }}</span></div>
+                {% endif %}
+                {% if dhan_user.token_validity %}
+                <div class="info-item"><span class="info-label">Token Validity</span><span class="info-value">{{ dhan_user.token_validity }}</span></div>
+                {% endif %}
+                {% if dhan_user.active_segment %}
+                <div class="info-item"><span class="info-label">Active Segments</span><span class="info-value">{{ dhan_user.active_segment }}</span></div>
+                {% endif %}
+                {% if dhan_user.ddpi %}
+                <div class="info-item"><span class="info-label">DDPI</span><span class="info-value">{{ dhan_user.ddpi }}</span></div>
+                {% endif %}
+                {% if dhan_user.mtf %}
+                <div class="info-item"><span class="info-label">MTF</span><span class="info-value">{{ dhan_user.mtf }}</span></div>
+                {% endif %}
+                {% if dhan_user.data_plan %}
+                <div class="info-item"><span class="info-label">Data Plan</span><span class="info-value">{{ dhan_user.data_plan }}</span></div>
+                {% endif %}
+                {% if dhan_user.data_validity %}
+                <div class="info-item"><span class="info-label">Data Validity</span><span class="info-value">{{ dhan_user.data_validity }}</span></div>
+                {% endif %}
+                <div class="info-item"><span class="info-label">Available Balance</span><span class="info-value balance">₹ {{ dhan_user.available_balance }}</span></div>
+                <div class="info-item"><span class="info-label">Utilized Amount</span><span class="info-value">₹ {{ dhan_user.utilized_amount }}</span></div>
+                <div class="info-item"><span class="info-label">Withdrawable</span><span class="info-value">₹ {{ dhan_user.withdrawable }}</span></div>
+                <div class="info-item"><span class="info-label">Collateral</span><span class="info-value">₹ {{ dhan_user.collateral }}</span></div>
+              {% endif %}
+            </div>
+          </div>
 
         </div><!-- /panel-dhan -->
 
@@ -266,69 +531,168 @@
 
           <div id="fp-message-box" class="message-box hidden"></div>
 
+          <div class="ti-config" data-broker="5paisa">
+            <button type="button" class="ti-config-toggle">
+              <span>TimeInterval configuration</span>
+              <span class="ta-collapse-btn">&#8964;</span>
+            </button>
+            <div class="ti-config-body hidden">
+              <p class="field-hint">Set lookback days for each chart interval. Add Weekly / Yearly by pointing at a native candle (e.g. 1D) and choosing how to combine it.</p>
+              <div class="ti-table-wrap"></div>
+              <div class="btn-row">
+                <button type="button" class="btn-secondary ti-add-btn">+ Add interval</button>
+                <button type="button" class="btn-primary ti-save-btn">Save intervals</button>
+              </div>
+              <div class="message-box hidden ti-msg"></div>
+            </div>
+          </div>
+
+          <div class="broker-account" id="fp-user-info-section" {% if not fp_connected %}style="display:none"{% endif %}>
+            <h3>Account Info</h3>
+            <div class="user-grid" id="fp-user-grid">
+              {% if fp_user %}
+                <div class="info-item"><span class="info-label">Client Code</span><span class="info-value">{{ fp_user.client_code }}</span></div>
+                {% if fp_user.net_available != '' %}
+                <div class="info-item"><span class="info-label">Net Available Margin</span><span class="info-value balance">₹ {{ fp_user.net_available }}</span></div>
+                {% endif %}
+                {% if fp_user.utilized_margin != '' %}
+                <div class="info-item"><span class="info-label">Margin Utilized</span><span class="info-value">₹ {{ fp_user.utilized_margin }}</span></div>
+                {% endif %}
+                {% if fp_user.collateral != '' %}
+                <div class="info-item"><span class="info-label">Collateral</span><span class="info-value">₹ {{ fp_user.collateral }}</span></div>
+                {% endif %}
+                {% if fp_user.adhoc_margin != '' %}
+                <div class="info-item"><span class="info-label">Adhoc Margin</span><span class="info-value">₹ {{ fp_user.adhoc_margin }}</span></div>
+                {% endif %}
+                {% if fp_user.payin_amount != '' %}
+                <div class="info-item"><span class="info-label">Pay-in Amount</span><span class="info-value">₹ {{ fp_user.payin_amount }}</span></div>
+                {% endif %}
+                {% if fp_user.payout_amount != '' %}
+                <div class="info-item"><span class="info-label">Pay-out Amount</span><span class="info-value">₹ {{ fp_user.payout_amount }}</span></div>
+                {% endif %}
+              {% endif %}
+            </div>
+          </div>
+
         </div><!-- /panel-5paisa -->
-      </section>
 
-      <!-- Account Info Section -->
-      <section class="card" id="user-info-section" {% if not connected %}style="display:none"{% endif %}>
-        <h2>Account Info</h2>
-        <div class="user-grid" id="user-grid">
-          {% if dhan_user %}
-            {% if dhan_user.client_id %}
-            <div class="info-item"><span class="info-label">Client ID</span><span class="info-value">{{ dhan_user.client_id }}</span></div>
-            {% endif %}
-            {% if dhan_user.token_validity %}
-            <div class="info-item"><span class="info-label">Token Validity</span><span class="info-value">{{ dhan_user.token_validity }}</span></div>
-            {% endif %}
-            {% if dhan_user.active_segment %}
-            <div class="info-item"><span class="info-label">Active Segments</span><span class="info-value">{{ dhan_user.active_segment }}</span></div>
-            {% endif %}
-            {% if dhan_user.ddpi %}
-            <div class="info-item"><span class="info-label">DDPI</span><span class="info-value">{{ dhan_user.ddpi }}</span></div>
-            {% endif %}
-            {% if dhan_user.mtf %}
-            <div class="info-item"><span class="info-label">MTF</span><span class="info-value">{{ dhan_user.mtf }}</span></div>
-            {% endif %}
-            {% if dhan_user.data_plan %}
-            <div class="info-item"><span class="info-label">Data Plan</span><span class="info-value">{{ dhan_user.data_plan }}</span></div>
-            {% endif %}
-            {% if dhan_user.data_validity %}
-            <div class="info-item"><span class="info-label">Data Validity</span><span class="info-value">{{ dhan_user.data_validity }}</span></div>
-            {% endif %}
-            <div class="info-item"><span class="info-label">Available Balance</span><span class="info-value balance">₹ {{ dhan_user.available_balance }}</span></div>
-            <div class="info-item"><span class="info-label">Utilized Amount</span><span class="info-value">₹ {{ dhan_user.utilized_amount }}</span></div>
-            <div class="info-item"><span class="info-label">Withdrawable</span><span class="info-value">₹ {{ dhan_user.withdrawable }}</span></div>
-            <div class="info-item"><span class="info-label">Collateral</span><span class="info-value">₹ {{ dhan_user.collateral }}</span></div>
-          {% endif %}
-        </div>
-      </section>
+        <!-- Yahoo Finance Panel -->
+        <div class="broker-panel hidden" id="panel-yahoo">
 
-      <!-- 5Paisa Account Info -->
-      <section class="card" id="fp-user-info-section" {% if not fp_connected %}style="display:none"{% endif %}>
-        <h2>5Paisa Account Info</h2>
-        <div class="user-grid" id="fp-user-grid">
-          {% if fp_user %}
-            <div class="info-item"><span class="info-label">Client Code</span><span class="info-value">{{ fp_user.client_code }}</span></div>
-            {% if fp_user.net_available != '' %}
-            <div class="info-item"><span class="info-label">Net Available Margin</span><span class="info-value balance">₹ {{ fp_user.net_available }}</span></div>
+          <div class="status-bar" id="yahoo-status">
+            {% if yahoo_enabled %}
+              <span class="badge connected">● Ready</span>
+            {% else %}
+              <span class="badge disconnected">● Disabled</span>
             {% endif %}
-            {% if fp_user.utilized_margin != '' %}
-            <div class="info-item"><span class="info-label">Margin Utilized</span><span class="info-value">₹ {{ fp_user.utilized_margin }}</span></div>
-            {% endif %}
-            {% if fp_user.collateral != '' %}
-            <div class="info-item"><span class="info-label">Collateral</span><span class="info-value">₹ {{ fp_user.collateral }}</span></div>
-            {% endif %}
-            {% if fp_user.adhoc_margin != '' %}
-            <div class="info-item"><span class="info-label">Adhoc Margin</span><span class="info-value">₹ {{ fp_user.adhoc_margin }}</span></div>
-            {% endif %}
-            {% if fp_user.payin_amount != '' %}
-            <div class="info-item"><span class="info-label">Pay-in Amount</span><span class="info-value">₹ {{ fp_user.payin_amount }}</span></div>
-            {% endif %}
-            {% if fp_user.payout_amount != '' %}
-            <div class="info-item"><span class="info-label">Pay-out Amount</span><span class="info-value">₹ {{ fp_user.payout_amount }}</span></div>
-            {% endif %}
-          {% endif %}
-        </div>
+          </div>
+
+          <form id="yahoo-cred-form">
+            <div class="form-group">
+              <label>Base URL</label>
+              <input type="text" id="yahoo-base-url" spellcheck="false"
+                     placeholder="https://query1.finance.yahoo.com/v8/finance/chart/{YahooStockSymbol}?..."
+                     value="{{ yahoo_base_url }}" autocomplete="off" />
+              <div class="field-hint" style="margin-top:6px;">
+                Placeholders: <code>{YahooStockSymbol}</code>, <code>{UTCStartDTM}</code>,
+                <code>{UTCEndDTM}</code>, <code>{Interval}</code>.
+                Symbols come from <code>Yahoo Stock List.csv</code> (Instrument → YahooStockSymbol).
+              </div>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn-primary" id="yahoo-save-btn">💾 Save Base URL</button>
+              <button type="button" class="btn-success" id="yahoo-connect-btn">🔌 Connect</button>
+            </div>
+          </form>
+
+          <div id="yahoo-message-box" class="message-box hidden"></div>
+
+          <div class="ti-config" data-broker="yahoo">
+            <button type="button" class="ti-config-toggle">
+              <span>TimeInterval configuration</span>
+              <span class="ta-collapse-btn">&#8964;</span>
+            </button>
+            <div class="ti-config-body hidden">
+              <p class="field-hint">Set lookback days for each chart interval. Yahoo also has native 1W / 1M. Or add Weekly from 1D candles if you prefer combining daily bars.</p>
+              <div class="ti-table-wrap"></div>
+              <div class="btn-row">
+                <button type="button" class="btn-secondary ti-add-btn">+ Add interval</button>
+                <button type="button" class="btn-primary ti-save-btn">Save intervals</button>
+              </div>
+              <div class="message-box hidden ti-msg"></div>
+            </div>
+          </div>
+
+        </div><!-- /panel-yahoo -->
+
+        <!-- Excel Panel -->
+        <div class="broker-panel hidden" id="panel-excel">
+
+          <div class="excel-head">
+            <div class="status-bar" id="excel-status">
+              {% if excel_enabled %}
+                <span class="badge connected">● Ready</span>
+              {% else %}
+                <span class="badge disconnected">● Disabled</span>
+              {% endif %}
+            </div>
+            <p class="field-hint">Read OHLC from a workbook currently open in Excel. Save one config per file or sheet. Config names appear in Home chart search.</p>
+          </div>
+
+          <div class="excel-layout">
+            <aside class="excel-saved">
+              <div class="excel-saved-head">
+                <span>Saved configs</span>
+                <button type="button" class="btn-secondary" id="excel-new-btn">+ New</button>
+              </div>
+              <ul class="excel-config-list" id="excel-config-list"></ul>
+            </aside>
+            <form id="excel-config-form" class="excel-form">
+              <input type="hidden" id="excel-config-id" value="" />
+              <div class="excel-form-grid">
+                <div class="form-group">
+                  <label for="excel-config-name">Config name</label>
+                  <input type="text" id="excel-config-name" placeholder="e.g. Nifty Live" autocomplete="off" maxlength="80" />
+                </div>
+                <div class="form-group">
+                  <label for="excel-poll-seconds">Refresh (sec)</label>
+                  <input type="number" id="excel-poll-seconds" min="1" max="3600" step="1" value="5" />
+                </div>
+                <div class="form-group">
+                  <label for="excel-header-row">Header row</label>
+                  <div class="input-mask-row">
+                    <input type="number" id="excel-header-row" min="1" max="20000" step="1" placeholder="Auto" />
+                    <button type="button" class="btn-secondary" id="excel-detect-btn">Detect</button>
+                  </div>
+                </div>
+                <div class="form-group excel-span-2">
+                  <label for="excel-workbook">Workbook</label>
+                  <div class="input-mask-row">
+                    <select id="excel-workbook"></select>
+                    <button type="button" class="btn-secondary" id="excel-refresh-files" title="Refresh open workbooks">↻</button>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="excel-sheet">Sheet</label>
+                  <select id="excel-sheet"></select>
+                </div>
+              </div>
+              <p class="field-hint excel-header-hint">Detect finds the first row with Date / OHLC headers. Or type a row number to map that row instead.</p>
+              <div class="excel-map-wrap">
+                <div class="excel-map-title">Column mapping</div>
+                <div class="excel-map-grid" id="excel-map-table"></div>
+                <button type="button" class="btn-secondary" id="excel-add-ind">+ Add indicator column</button>
+              </div>
+              <div class="btn-row">
+                <button type="button" class="btn-primary" id="excel-save-btn">Save config</button>
+                <button type="button" class="btn-success" id="excel-connect-btn">Connect</button>
+                <button type="button" class="btn-danger" id="excel-delete-btn">Delete</button>
+              </div>
+            </form>
+          </div>
+
+          <div id="excel-message-box" class="message-box hidden"></div>
+        </div><!-- /panel-excel -->
       </section>
 
     </div><!-- /page-connect-broker -->
@@ -361,6 +725,26 @@
             </div>
             <label class="toggle-switch">
               <input type="checkbox" id="setting-enable-5paisa" checked />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">Yahoo Finance</span>
+              <span class="settings-broker-desc">Yahoo Finance charts via Base URL (Yahoo Stock List.csv)</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-enable-yahoo" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-label">
+              <span class="settings-broker-name">Excel</span>
+              <span class="settings-broker-desc">Live charts from workbooks currently open in Excel</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-enable-excel" />
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -540,7 +924,7 @@
                   <span class="toggle-slider"></span>
                 </label>
                 <span class="ta-title">Technical Indicators</span>
-                <span class="ta-subtitle">Append indicator values to API responses when <code>TA=true</code></span>
+                <span class="ta-subtitle">Append built-in and custom line indicators when <code>TA=true</code></span>
               </div>
               <button class="ta-collapse-btn" id="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
             </div>
@@ -561,6 +945,7 @@
                 </div>
                 <div class="ta-usage-note">
                   Usage: append <code>TA=true</code> to any historical API call.<br>
+                  Custom line indicators (e.g. Smoothing) appear in the list below; each line is a separate field such as <code>smoothing_ce1</code> &hellip; <code>smoothing_ce4</code>.<br>
                   Example: <code id="ta-example-url">/public/api/5paisa/historical?symbol=RELIANCE&amp;interval=15&amp;TA=true</code>
                 </div>
               </div>
@@ -743,9 +1128,15 @@
             <span id="oc-spot-label">Spot: —</span>
             <span id="oc-greeks-src">Greeks: —</span>
             <span id="oc-updated">Updated: —</span>
-            <div class="oc-view-switch" id="oc-view-switch">
-              <button type="button" class="oc-view-btn active" data-view="price">Price</button>
-              <button type="button" class="oc-view-btn" data-view="greeks">Greeks</button>
+            <div class="oc-view-block">
+              <div class="oc-view-switch" id="oc-view-switch">
+                <button type="button" class="oc-view-btn active" data-view="price">Price</button>
+                <button type="button" class="oc-view-btn" data-view="greeks">Greeks</button>
+              </div>
+              <div class="oc-interp-legend" id="oc-interp-legend" title="Underlying move vs that side's OI. Green = bullish for the market, red = bearish.">
+                <span><b class="oc-interp-bull">CE</b> L.B. / S.C. bull · S.W. / L.U. bear</span>
+                <span><b class="oc-interp-bear">PE</b> S.W. / L.U. bull · L.B. / S.C. bear</span>
+              </div>
             </div>
           </div>
           <div id="oc-msg" class="message-box hidden"></div>
@@ -825,17 +1216,22 @@
                 <button type="button" class="oi-chip" data-n="25">25</button>
               </div>
             </div>
+            <button type="button" class="btn-primary oi-refresh-btn" id="oi-refresh-filters-btn">Refresh</button>
           </aside>
 
           <div class="oi-main">
             <div class="oi-chart-head">
-              <h2 id="oi-chart-title">OI Change vs Strike</h2>
+              <div class="oi-chart-head-left">
+                <h2 id="oi-chart-title">OI Change vs Strike</h2>
+                <span class="oi-chart-expiries" id="oi-chart-expiries"></span>
+              </div>
               <div class="oi-chart-actions">
                 <button type="button" class="oi-link-btn" id="oi-how-btn">How to read this?</button>
                 <label class="oi-toggle">
                   <input type="checkbox" id="oi-show-oi" />
                   <span>Show OI</span>
                 </label>
+                <button type="button" class="btn-primary oi-refresh-btn" id="oi-refresh-btn">Refresh</button>
               </div>
             </div>
             <div class="oi-howto hidden" id="oi-howto">
@@ -844,6 +1240,7 @@
             <div class="oi-placeholder hidden" id="oi-placeholder">This view is not built yet. Use OI Change for the Sensibull-style strike chart.</div>
             <div class="oi-chart-wrap" id="oi-chart-wrap">
               <canvas id="oi-chart"></canvas>
+              <div class="oi-tooltip hidden" id="oi-tooltip"></div>
             </div>
             <div class="oi-time-block" id="oi-time-block">
               <div class="oi-slider-row">
@@ -880,6 +1277,133 @@
         </div>
       </section>
     </div><!-- /page-open-interest -->
+
+    <!-- ══ Page: Gamma Exposure ══ -->
+    <div class="page" id="page-gamma-exposure">
+      <section class="card gx-card">
+        <div class="gx-top">
+          <div>
+            <h2>Gamma Exposure</h2>
+            <p class="settings-hint gx-hint">Dealer GEX from OI × gamma. Positive GEX → range / vol compression. Negative GEX → trend / vol expansion. Combined with OI change for a regime score — not a buy/sell button.</p>
+          </div>
+          <div class="gx-badges">
+            <span class="oi-badge" id="gx-src-badge">Data: —</span>
+            <span class="oi-badge" id="gx-greeks-badge">Greeks: —</span>
+            <span class="oi-badge" id="gx-pcr-badge">PCR —</span>
+          </div>
+        </div>
+
+        <div class="oc-filter-panel gx-filters">
+          <div class="oc-filter-grid">
+            <div class="form-group">
+              <label for="gx-symbol">Underlying</label>
+              <select id="gx-symbol">
+                <option value="NIFTY">NIFTY</option>
+                <option value="BANKNIFTY">BANKNIFTY</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="gx-expiry">Expiry</label>
+              <select id="gx-expiry">
+                <option value="">Select symbol first</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="gx-window">Strikes ±ATM</label>
+              <input type="number" id="gx-window" value="18" min="8" max="40" step="1" />
+            </div>
+            <div class="form-group oc-filter-actions">
+              <label>&nbsp;</label>
+              <div class="oc-btn-row">
+                <button class="btn-primary" id="gx-load-btn">Load GEX</button>
+                <label class="oc-auto-label">
+                  <input type="checkbox" id="gx-auto-refresh" /> Auto 15s
+                </label>
+              </div>
+            </div>
+          </div>
+          <div id="gx-msg" class="message-box hidden"></div>
+        </div>
+
+        <div class="gx-overview" id="gx-overview">
+          <div class="gx-ov-cell"><span>Spot</span><b id="gx-spot">—</b></div>
+          <div class="gx-ov-cell"><span>Net GEX (1% move)</span><b id="gx-net">—</b></div>
+          <div class="gx-ov-cell"><span>Call GEX</span><b id="gx-call" class="gx-pos">—</b></div>
+          <div class="gx-ov-cell"><span>Put GEX</span><b id="gx-put" class="gx-neg">—</b></div>
+          <div class="gx-ov-cell"><span>Gamma flip</span><b id="gx-flip">—</b></div>
+          <div class="gx-ov-cell"><span>Max gamma strike</span><b id="gx-maxk">—</b></div>
+          <div class="gx-ov-cell"><span>Major +GEX</span><b id="gx-maj-pos">—</b></div>
+          <div class="gx-ov-cell"><span>Major −GEX</span><b id="gx-maj-neg">—</b></div>
+        </div>
+
+        <div class="gx-layout">
+          <div class="gx-map-col">
+            <div class="gx-chart-head">
+              <h3>Gamma Map</h3>
+              <div class="gx-legend">
+                <span><i class="gx-swatch gx-swatch-call"></i> Call GEX</span>
+                <span><i class="gx-swatch gx-swatch-put"></i> Put GEX</span>
+                <span><i class="gx-swatch gx-swatch-net"></i> Net</span>
+                <span><i class="gx-swatch gx-swatch-spot"></i> Spot</span>
+                <span><i class="gx-swatch gx-swatch-flip"></i> Flip</span>
+              </div>
+            </div>
+            <div class="gx-chart-wrap" id="gx-chart-wrap">
+              <canvas id="gx-chart"></canvas>
+              <div class="oi-tooltip hidden" id="gx-tooltip"></div>
+            </div>
+            <div class="gx-zones" id="gx-zones"></div>
+          </div>
+
+          <aside class="gx-regime" id="gx-regime">
+            <div class="gx-score-label">Gamma Regime</div>
+            <div class="gx-score-row">
+              <span class="gx-score-num" id="gx-score-num">—</span>
+              <span class="gx-score-name" id="gx-score-name">—</span>
+            </div>
+            <div class="gx-meter"><div class="gx-meter-fill" id="gx-meter-fill"></div><div class="gx-meter-mid"></div></div>
+            <div class="gx-reg-block">
+              <span>Expected behaviour</span>
+              <b id="gx-expected">—</b>
+            </div>
+            <dl class="gx-kv">
+              <dt>Spot</dt><dd id="gx-kv-spot">—</dd>
+              <dt>Gamma Flip</dt><dd id="gx-kv-flip">—</dd>
+              <dt>Major +GEX</dt><dd id="gx-kv-pos">—</dd>
+              <dt>Major −GEX</dt><dd id="gx-kv-neg">—</dd>
+              <dt>Bias</dt><dd id="gx-kv-bias">—</dd>
+              <dt>Volatility</dt><dd id="gx-kv-vol">—</dd>
+              <dt>Breakout risk</dt><dd id="gx-kv-brk">—</dd>
+              <dt>GEX change</dt><dd id="gx-kv-chg">—</dd>
+            </dl>
+            <div class="gx-says" id="gx-says">Gamma says —</div>
+            <div class="gx-signal" id="gx-signal">
+              <div class="gx-sig-title">Strategy signal</div>
+              <div class="gx-sig-label" id="gx-sig-label">—</div>
+              <div class="gx-sig-meta" id="gx-sig-meta"></div>
+              <ul class="gx-sig-reasons" id="gx-sig-reasons"></ul>
+            </div>
+          </aside>
+        </div>
+
+        <h3 class="gx-section-title">Interpretation</h3>
+        <div class="gx-table-wrap">
+          <table class="gx-table" id="gx-interp-table">
+            <thead>
+              <tr><th>Condition</th><th>Interpretation</th><th>Expected behaviour</th></tr>
+            </thead>
+            <tbody id="gx-interp-body">
+              <tr><td colspan="3" class="oc-empty">Load GEX to fill the engine.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="oi-footer">
+          <span id="gx-refreshed">Last refreshed: —</span>
+          <span class="oi-disclaimer">GEX assumes dealers are long calls / short puts on index flow. Combine with your 3-minute OI view — this is a regime overlay, not a standalone trigger.</span>
+        </div>
+      </section>
+    </div><!-- /page-gamma-exposure -->
 
     <!-- ══ Page: Option Strategy Builder ══ -->
     <div class="page" id="page-option-strategy">
@@ -1084,7 +1608,19 @@
         <!-- Header strip -->
         <div class="pd-header card">
           <div class="pd-title-block">
-            <div class="pd-title"><span class="pd-sym1" id="pd-sym1">—</span> <span class="pd-vs">vs</span> <span class="pd-sym2" id="pd-sym2">—</span></div>
+            <div class="pd-title">
+              <div class="pd-title-leg">
+                <span class="pd-sym1" id="pd-sym1">—</span>
+                <span class="pd-title-px" id="pd-head-px1">—</span>
+                <span class="pd-title-chg" id="pd-head-chg1"></span>
+              </div>
+              <span class="pd-vs">vs</span>
+              <div class="pd-title-leg">
+                <span class="pd-sym2" id="pd-sym2">—</span>
+                <span class="pd-title-px" id="pd-head-px2">—</span>
+                <span class="pd-title-chg" id="pd-head-chg2"></span>
+              </div>
+            </div>
             <div class="pd-sub">Sector: <span id="pd-sector">—</span></div>
             <div class="pd-sub">Interval: <span id="pd-interval">—</span> &nbsp; Period: <span id="pd-period">—</span></div>
           </div>
@@ -1105,15 +1641,89 @@
           </div>
         </div>
 
+        <!-- Capital requirement calculator -->
+        <div class="card pd-live" id="pd-live">
+          <div class="pd-live-head">
+            <h3>Capital Requirement</h3>
+            <button type="button" class="btn-secondary" id="pd-px-refresh">Refresh price</button>
+            <button type="button" class="btn-primary" id="pd-calc-btn">Calculate</button>
+            <button type="button" class="btn-secondary" id="pd-lower-btn">Lower</button>
+            <span class="pd-live-stamp" id="pd-live-stamp">Waiting for quotes…</span>
+          </div>
+          <div class="pd-calc-wrap">
+            <table class="pd-calc">
+              <thead>
+                <tr>
+                  <th>Instrument</th>
+                  <th>Trade</th>
+                  <th>Segment</th>
+                  <th>Price</th>
+                  <th>Lot Size</th>
+                  <th>Lot</th>
+                  <th>Qty</th>
+                  <th>Total value</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-row="1">
+                  <td class="pd-calc-sym" id="pd-c-sym1">—</td>
+                  <td>
+                    <select class="pd-c-trade" id="pd-c-trade1">
+                      <option value="SELL">Sell</option>
+                      <option value="BUY">Buy</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select class="pd-c-seg" id="pd-c-seg1">
+                      <option value="cash">Cash</option>
+                      <option value="futures">Future</option>
+                    </select>
+                  </td>
+                  <td><input type="number" class="pd-c-price" id="pd-c-price1" step="0.05" min="0"></td>
+                  <td><input type="number" class="pd-c-lot" id="pd-c-lot1" step="1" min="1" value="1" disabled></td>
+                  <td><input type="number" class="pd-c-nlot" id="pd-c-nlot1" step="1" min="1" value="1"></td>
+                  <td><input type="number" class="pd-c-qty" id="pd-c-qty1" step="1" min="1" value="1"></td>
+                  <td class="num" id="pd-c-val1">—</td>
+                </tr>
+                <tr data-row="2">
+                  <td class="pd-calc-sym" id="pd-c-sym2">—</td>
+                  <td>
+                    <select class="pd-c-trade" id="pd-c-trade2">
+                      <option value="BUY">Buy</option>
+                      <option value="SELL">Sell</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select class="pd-c-seg" id="pd-c-seg2">
+                      <option value="cash">Cash</option>
+                      <option value="futures">Future</option>
+                    </select>
+                  </td>
+                  <td><input type="number" class="pd-c-price" id="pd-c-price2" step="0.05" min="0"></td>
+                  <td><input type="number" class="pd-c-lot" id="pd-c-lot2" step="1" min="1" value="1" disabled></td>
+                  <td><input type="number" class="pd-c-nlot" id="pd-c-nlot2" step="1" min="1" value="1"></td>
+                  <td><input type="number" class="pd-c-qty" id="pd-c-qty2" step="1" min="1" value="1"></td>
+                  <td class="num" id="pd-c-val2">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pd-hedge-foot">
+            <span>Imbalance <b id="pd-h-imb">—</b></span>
+            <span>Gross investment <b id="pd-h-gross">—</b></span>
+          </div>
+          <p class="pd-hedge-note" id="pd-hedge-note">Cash: Lot Size is 1, so Lot and Qty stay in sync. Future: Lot is number of lots (editable); Qty = Lot × Lot Size. Calculate = lowest imbalance. Lower = next cheaper capital.</p>
+        </div>
+
         <!-- Main grid: charts left, stats right -->
         <div class="pd-grid">
           <div class="pd-charts">
-            <div class="card pd-panel"><h3>1. Normalized Price Chart (Base = 100)</h3><canvas id="pd-c-norm" height="220"></canvas></div>
-            <div class="card pd-panel"><h3 id="pd-ratio-title">2. Price Ratio</h3><canvas id="pd-c-ratio" height="220"></canvas></div>
-            <div class="card pd-panel"><h3>3. Density Distribution (Ratio)</h3><canvas id="pd-c-dist" height="200"></canvas></div>
-            <div class="card pd-panel"><h3>4. Rolling Correlation</h3><canvas id="pd-c-rcorr" height="180"></canvas></div>
-            <div class="card pd-panel"><h3>5. Z-Score (Ratio)</h3><canvas id="pd-c-z" height="200"></canvas></div>
-            <div class="card pd-panel"><h3>6. Spread (Z-Score) with Signals</h3><canvas id="pd-c-sig" height="200"></canvas></div>
+            <div class="card pd-panel"><h3>1. Normalized Price Chart (Base = 100)</h3><div class="pd-chart-wrap"><canvas id="pd-c-norm"></canvas></div></div>
+            <div class="card pd-panel"><h3 id="pd-ratio-title">2. Price Ratio</h3><div class="pd-chart-wrap"><canvas id="pd-c-ratio"></canvas></div></div>
+            <div class="card pd-panel"><h3>3. Density Distribution (Ratio)</h3><div class="pd-chart-wrap"><canvas id="pd-c-dist"></canvas></div></div>
+            <div class="card pd-panel"><h3>4. Rolling Correlation</h3><div class="pd-chart-wrap"><canvas id="pd-c-rcorr"></canvas></div></div>
+            <div class="card pd-panel"><h3>5. Z-Score (Ratio)</h3><div class="pd-chart-wrap"><canvas id="pd-c-z"></canvas></div></div>
+            <div class="card pd-panel"><h3>6. Spread (Z-Score) with Signals</h3><div class="pd-chart-wrap"><canvas id="pd-c-sig"></canvas></div></div>
           </div>
           <div class="pd-side">
             <div class="card pd-panel">
@@ -1136,13 +1746,29 @@
   </main>
 </div><!-- /app-shell -->
 
-<script src="/static/js/lightweight-charts.min.js"></script>
+<script>
+window._brokerConnected = {
+  dhan: {{ connected|default(false)|tojson }},
+  "5paisa": {{ fp_connected|default(false)|tojson }},
+  yahoo: {{ yahoo_enabled|default(false)|tojson }},
+  excel: {{ excel_enabled|default(false)|tojson }}
+};
+window._brokerEnabled = {
+  dhan: {{ dhan_enabled|default(true)|tojson }},
+  "5paisa": {{ fp_enabled|default(true)|tojson }},
+  yahoo: {{ yahoo_enabled|default(false)|tojson }},
+  excel: {{ excel_enabled|default(false)|tojson }}
+};
+</script>
+<script src="/static/js/klinecharts.min.js"></script>
 <script src="/static/js/socket.io.min.js"></script>
-<script src="/static/js/main.js"></script>
+<script src="/static/js/home_chart.js?v=xl2"></script>
+<script src="/static/js/main.js?v=xl1"></script>
 <script src="/static/js/correlation_density.js"></script>
-<script src="/static/js/pair_detail.js"></script>
+<script src="/static/js/pair_detail.js?v=pd-calc4"></script>
 <script src="/static/js/option_chain.js"></script>
 <script src="/static/js/open_interest.js"></script>
+<script src="/static/js/gamma_exposure.js"></script>
 <script src="/static/js/option_strategy.js"></script>
 </body>
 </html>

@@ -17,6 +17,7 @@ window._getChartTheme = function () {
     if (window._pairDetailApplyTheme) window._pairDetailApplyTheme();
     if (window._optionStrategyApplyTheme) window._optionStrategyApplyTheme();
     if (window._openInterestApplyTheme) window._openInterestApplyTheme();
+    if (window._gammaExposureApplyTheme) window._gammaExposureApplyTheme();
   }
   document.querySelectorAll(".theme-opt").forEach(function (btn) {
     btn.addEventListener("click", function () { applyTheme(btn.dataset.themeOpt); });
@@ -27,24 +28,54 @@ window._getChartTheme = function () {
 /* ── Sidebar Toggle ── */
 document.getElementById("sidebar-toggle").addEventListener("click", () => {
   document.getElementById("sidebar").classList.toggle("collapsed");
+  if (typeof window._chartResize === "function") window._chartResize();
+  window.dispatchEvent(new Event("resize"));
 });
 
 /* ── Page Navigation ── */
+function syncOptionAnalysisNav(pageId) {
+  var accordion = document.querySelector(".nav-accordion");
+  var parent = document.getElementById("nav-option-analysis");
+  if (!accordion || !parent) return;
+  var optionPages = ["option-chain", "open-interest", "gamma-exposure", "option-strategy"];
+  var isOption = optionPages.indexOf(pageId) !== -1;
+  accordion.classList.toggle("open", isOption);
+  parent.setAttribute("aria-expanded", isOption ? "true" : "false");
+}
+
 document.querySelectorAll(".nav-item[data-page]").forEach(link => {
   link.addEventListener("click", e => {
     e.preventDefault();
+    var leavingHome = document.getElementById("page-home") && document.getElementById("page-home").classList.contains("active");
+    if (leavingHome && link.dataset.page !== "home" && typeof window._chartOnHomeHidden === "function") {
+      window._chartOnHomeHidden();
+    }
     document.querySelectorAll(".nav-item").forEach(l => l.classList.remove("active"));
     link.classList.add("active");
     document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
     const page = document.getElementById("page-" + link.dataset.page);
     if (page) page.classList.add("active");
-    
+    syncOptionAnalysisNav(link.dataset.page);
+
     // Initialize Option Strategy Builder when that page is activated
     if (link.dataset.page === "option-strategy" && typeof window.initOptionStrategy === 'function') {
       window.initOptionStrategy();
     }
+    if (link.dataset.page === "home" && typeof window._chartOnHomeShown === "function") {
+      window._chartOnHomeShown();
+    }
   });
 });
+
+(function () {
+  var parent = document.getElementById("nav-option-analysis");
+  var accordion = document.querySelector(".nav-accordion");
+  if (!parent || !accordion) return;
+  parent.addEventListener("click", function () {
+    var open = accordion.classList.toggle("open");
+    parent.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+})();
 
 // Initialize Option Strategy Builder on page load if it's the active page
 document.addEventListener('DOMContentLoaded', function() {
@@ -53,355 +84,6 @@ document.addEventListener('DOMContentLoaded', function() {
     window.initOptionStrategy();
   }
 });
-
-/* ── Chart Module (LightweightCharts v4) ── */
-(function () {
-
-  const IST_OFFSET = 19800; // UTC → IST shift in seconds
-
-  let chart        = null;
-  let candleSeries = null;
-  let _socket      = null;
-  let _liveSub     = false;
-  let selectedInstrument = null;
-  let activeInterval     = "1";
-  let activeBroker       = "dhan";
-  let _refreshTimer    = null;
-  let _refreshInterval = 0;   // ms; 0 = disabled
-  let _lastBarTime     = null; // time of newest bar in the series
-  let _refreshing      = false; // guard against overlapping silent fetches
-
-  const MIN_REFRESH_MS = 1000; // floor so a tiny value can't hammer the API
-
-  function startAutoRefresh() {
-    stopAutoRefresh();
-    if (_refreshInterval > 0 && selectedInstrument) {
-      const iv = Math.max(MIN_REFRESH_MS, _refreshInterval);
-      _refreshTimer = setInterval(function() {
-        if (selectedInstrument && chart) loadChartData(true);
-      }, iv);
-    }
-  }
-
-  function stopAutoRefresh() {
-    if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
-  }
-
-  // Called by Settings Module when user changes the interval
-  window._chartSetRefreshInterval = function(ms) {
-    _refreshInterval = ms;
-    startAutoRefresh();
-  };
-
-  // Called by the theme toggle: restyle an existing chart in place
-  window._chartApplyTheme = function () {
-    if (!chart) return;
-    var th = window._getChartTheme();
-    chart.applyOptions({
-      layout:          { background: { color: th.bg }, textColor: th.text },
-      grid:            { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
-      rightPriceScale: { borderColor: th.border },
-      timeScale:       { borderColor: th.border, timeVisible: true, secondsVisible: false },
-    });
-  };
-
-
-  const searchInput    = document.getElementById("stock-search");
-  const dropdown       = document.getElementById("search-dropdown");
-  const intervalBtns   = document.querySelectorAll(".ivl-btn");
-  const loadBtn        = document.getElementById("load-chart-btn");
-  const chartContainer = document.getElementById("chart-container");
-  const chartMessage   = document.getElementById("chart-message");
-  const chartMeta      = document.getElementById("chart-meta");
-  const symbolLabel    = document.getElementById("chart-symbol-label");
-  const ohlcEl         = document.getElementById("chart-ohlc");
-
-  // ── Socket.IO live feed (5Paisa only) ──
-  function getSocket() {
-    if (!_socket) {
-      _socket = io({ transports: ["websocket", "polling"] });
-      _socket.on("price_update", candle => {
-        if (!candleSeries) return;
-        const dot = document.getElementById("live-dot");
-        candleSeries.update({
-          time:   candle.time + IST_OFFSET,
-          open:   candle.open,
-          high:   candle.high,
-          low:    candle.low,
-          close:  candle.close,
-        });
-        if (dot) { dot.classList.add("pulse"); setTimeout(() => dot.classList.remove("pulse"), 400); }
-      });
-    }
-    return _socket;
-  }
-
-  function subscribeLive() {
-    if (activeBroker !== "5paisa" || !selectedInstrument) return;
-    getSocket().emit("subscribe_live", {
-      scrip_code: selectedInstrument.scrip_code,
-      exch:       selectedInstrument.exch,
-      exch_type:  selectedInstrument.exch_type,
-      interval:   activeInterval,
-    });
-    _liveSub = true;
-    const t = document.getElementById("live-badge");
-    if (t) t.style.display = "inline-flex";
-  }
-
-  function unsubscribeLive() {
-    if (!_liveSub) return;
-    if (_socket) _socket.emit("unsubscribe_live");
-    _liveSub = false;
-    const t = document.getElementById("live-badge");
-    if (t) t.style.display = "none";
-  }
-
-  // ── Broker source tabs ──
-  document.querySelectorAll(".cbrok-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".cbrok-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      activeBroker = btn.dataset.cbrok;
-      unsubscribeLive();
-      selectedInstrument = null;
-      searchInput.value = "";
-      dropdown.innerHTML = "";
-      dropdown.classList.add("hidden");
-    });
-  });
-
-  // ── Interval buttons ──
-  intervalBtns.forEach(btn => {
-    btn.addEventListener("click", () => {
-      intervalBtns.forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      activeInterval = btn.dataset.ivl;
-      if (selectedInstrument) loadChartData();
-    });
-  });
-
-  // ── Stock search typeahead ──
-  let searchTimer = null;
-  searchInput.addEventListener("input", () => {
-    clearTimeout(searchTimer);
-    const q = searchInput.value.trim();
-    if (q.length < 2) { dropdown.classList.add("hidden"); dropdown.innerHTML = ""; return; }
-    searchTimer = setTimeout(() => fetchSuggestions(q), 250);
-  });
-
-  searchInput.addEventListener("keydown", e => {
-    const items  = dropdown.querySelectorAll("li");
-    const active = dropdown.querySelector("li.active");
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      if (!active) { items[0] && items[0].classList.add("active"); }
-      else { active.classList.remove("active"); const n = active.nextElementSibling; if (n) n.classList.add("active"); }
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      if (active) { active.classList.remove("active"); const p = active.previousElementSibling; if (p) p.classList.add("active"); }
-    } else if (e.key === "Enter") {
-      if (active) active.click();
-    } else if (e.key === "Escape") {
-      dropdown.classList.add("hidden");
-    }
-  });
-
-  document.addEventListener("click", e => {
-    if (!e.target.closest(".chart-search-wrap")) dropdown.classList.add("hidden");
-  });
-
-  async function fetchSuggestions(q) {
-    try {
-      const url = activeBroker === "5paisa"
-        ? `/api/5paisa/instruments/search?q=${encodeURIComponent(q)}&limit=12`
-        : `/api/instruments/search?q=${encodeURIComponent(q)}&limit=12`;
-      const res   = await fetch(url);
-      const items = await res.json();
-      if (items.error) { dropdown.classList.add("hidden"); return; }
-      dropdown.innerHTML = "";
-      if (!items.length) { dropdown.classList.add("hidden"); return; }
-      items.forEach(item => {
-        const li  = document.createElement("li");
-        const sym = item.trading_symbol;
-        const seg = activeBroker === "5paisa" ? item.exchange_label : item.exchange_segment;
-        li.innerHTML = `<span class="sym">${sym}</span>${item.name}<span class="seg">${seg}</span>`;
-        li.addEventListener("click", () => {
-          selectedInstrument = item;
-          searchInput.value  = `${sym} \u2014 ${item.name}`;
-          dropdown.classList.add("hidden");
-        });
-        dropdown.appendChild(li);
-      });
-      dropdown.classList.remove("hidden");
-    } catch (_) {}
-  }
-
-  // ── Load Chart button ──
-  loadBtn.addEventListener("click", () => {
-    if (!selectedInstrument) {
-      chartMessage.textContent = "Please search and select a stock first.";
-      chartMessage.style.display = "flex";
-      return;
-    }
-    loadChartData();
-  });
-
-  // ── Init LightweightCharts ──
-  function initChart() {
-    if (chart) { chart.remove(); chart = null; }
-    chartMessage.style.display = "none";
-    chartContainer.style.display = "block";
-
-    var th = window._getChartTheme();
-    chart = LightweightCharts.createChart(chartContainer, {
-      layout:          { background: { color: th.bg }, textColor: th.text },
-      grid:            { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
-      crosshair:       { mode: LightweightCharts.CrosshairMode.Normal },
-      rightPriceScale: { borderColor: th.border },
-      timeScale:       { borderColor: th.border, timeVisible: true, secondsVisible: false },
-      width:           chartContainer.clientWidth,
-      height:          480,
-    });
-
-    candleSeries = chart.addCandlestickSeries({
-      upColor:         "#3fb950",
-      downColor:       "#f85149",
-      borderUpColor:   "#3fb950",
-      borderDownColor: "#f85149",
-      wickUpColor:     "#3fb950",
-      wickDownColor:   "#f85149",
-    });
-
-    // Crosshair OHLC tooltip
-    chart.subscribeCrosshairMove(param => {
-      if (!param.time || !param.seriesData) { ohlcEl.innerHTML = ""; return; }
-      const d = param.seriesData.get(candleSeries);
-      if (!d) return;
-      ohlcEl.innerHTML =
-        `<span class="ohlc-o">O <b>${d.open.toFixed(2)}</b></span>` +
-        `<span class="ohlc-h">H <b>${d.high.toFixed(2)}</b></span>` +
-        `<span class="ohlc-l">L <b>${d.low.toFixed(2)}</b></span>` +
-        `<span class="ohlc-c">C <b>${d.close.toFixed(2)}</b></span>`;
-    });
-
-    new ResizeObserver(() => {
-      if (chart) chart.applyOptions({ width: chartContainer.clientWidth });
-    }).observe(chartContainer);
-  }
-
-  // ── Load chart data ──
-  async function loadChartData(silent) {
-    if (silent && _refreshing) return;   // previous refresh still in flight
-    _refreshing = true;
-    if (!silent) {
-      chartMessage.textContent = "Loading chart data\u2026";
-      chartMessage.style.display = "flex";
-      if (chart) { chart.remove(); chart = null; }
-      _lastBarTime = null;
-    }
-
-    try {
-      let res;
-      if (activeBroker === "5paisa") {
-        res = await fetch("/api/5paisa/chart/data", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({
-            scrip_code:      selectedInstrument.scrip_code,
-            exch:            selectedInstrument.exch,
-            exch_type:       selectedInstrument.exch_type,
-            trading_symbol:  selectedInstrument.trading_symbol || "",
-            interval:        activeInterval,
-          }),
-        });
-      } else {
-        res = await fetch("/api/chart/data", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({
-            security_id:      selectedInstrument.security_id,
-            exchange_segment: selectedInstrument.exchange_segment,
-            instrument:       selectedInstrument.instrument,
-            interval:         activeInterval,
-          }),
-        });
-      }
-
-      const data = await res.json();
-      if (!data.success) {
-        let msg = data.message || "Failed to load chart data.";
-        if (data.error_code === "DH-902" || (msg && msg.includes("Data API"))) {
-          msg = `\u26a0\ufe0f Data API subscription required.\n${msg}\n\nSubscribe at: https://dhan.co/data-apis/`;
-        }
-        if (!silent) {               // don't cover a live chart on a failed refresh
-          chartMessage.textContent = msg;
-          chartMessage.style.display = "flex";
-        }
-        return;
-      }
-      if (!data.candles.length) {
-        if (!silent) {
-          chartMessage.textContent = "No data returned for selected range.";
-          chartMessage.style.display = "flex";
-        }
-        return;
-      }
-
-      const isFullLoad = !silent || !chart;
-      if (isFullLoad) initChart();
-
-      // Convert UTC unix timestamps → IST for display
-      // LightweightCharts v4 has no timezone support; shift by +19800s (IST = UTC+5:30)
-      const formatted = data.candles.map(c => {
-        let t;
-        if (activeInterval === "D") {
-          const d = new Date((c.time + IST_OFFSET) * 1000);
-          t = d.toISOString().slice(0, 10);
-        } else {
-          t = c.time + IST_OFFSET;
-        }
-        return { time: t, open: c.open, high: c.high, low: c.low, close: c.close };
-      });
-
-      if (isFullLoad) {
-        candleSeries.setData(formatted);
-        chart.timeScale().fitContent();
-      } else {
-        // Incremental update: only touch the last known bar and anything newer.
-        // Preserves the user's zoom/pan and avoids a full redraw (no flicker).
-        for (const bar of formatted) {
-          if (_lastBarTime === null || bar.time >= _lastBarTime) {
-            candleSeries.update(bar);
-          }
-        }
-      }
-      _lastBarTime = formatted.length ? formatted[formatted.length - 1].time : _lastBarTime;
-
-      const seg = activeBroker === "5paisa"
-        ? selectedInstrument.exchange_label
-        : selectedInstrument.exchange_segment;
-      symbolLabel.textContent = `${selectedInstrument.trading_symbol} \u00b7 ${seg} [${activeBroker === "5paisa" ? "5Paisa" : "Dhan"}]`;
-      chartMeta.classList.remove("hidden");
-      chartMessage.style.display = "none";
-
-      if (isFullLoad) {
-        unsubscribeLive();
-        if (activeBroker === "5paisa") subscribeLive();
-        startAutoRefresh();
-      }
-
-    } catch (e) {
-      if (!silent) {
-        chartMessage.textContent = "Error: " + e.message;
-        chartMessage.style.display = "flex";
-      }
-    } finally {
-      _refreshing = false;
-    }
-  }
-
-})();
 
 /* ── Broker Connect Module ── */
 (function () {
@@ -441,6 +123,154 @@ document.addEventListener('DOMContentLoaded', function() {
       document.querySelectorAll(".broker-panel").forEach(p => p.classList.add("hidden"));
       const panel = document.getElementById("panel-" + btn.dataset.broker);
       if (panel) panel.classList.remove("hidden");
+    });
+  });
+
+  var _nativeIntervals = {
+    dhan: [{id:"1",label:"1m"},{id:"5",label:"5m"},{id:"15",label:"15m"},{id:"25",label:"25m"},{id:"60",label:"1h"},{id:"D",label:"1D"}],
+    "5paisa": [{id:"1",label:"1m"},{id:"5",label:"5m"},{id:"15",label:"15m"},{id:"25",label:"30m"},{id:"60",label:"1h"},{id:"D",label:"1D"}],
+    yahoo: [{id:"1",label:"1m"},{id:"5",label:"5m"},{id:"15",label:"15m"},{id:"25",label:"30m"},{id:"60",label:"1h"},{id:"90",label:"90m"},{id:"D",label:"1D"},{id:"W",label:"1W"},{id:"M",label:"1M"},{id:"Q",label:"1Q"}]
+  };
+  var _resampleOptions = [
+    {id:"", label:"Native"},
+    {id:"W", label:"Weekly"},
+    {id:"M", label:"Monthly"},
+    {id:"Q", label:"Quarterly"},
+    {id:"Y", label:"Yearly"}
+  ];
+  var _intervalDraft = { dhan: [], "5paisa": [], yahoo: [] };
+
+  function optionHtml(list, selected) {
+    return list.map(function (o) {
+      var sel = String(o.id) === String(selected) ? " selected" : "";
+      return "<option value=\"" + o.id + "\"" + sel + ">" + o.label + "</option>";
+    }).join("");
+  }
+
+  function renderIntervalTable(broker) {
+    var box = document.querySelector('.ti-config[data-broker="' + broker + '"] .ti-table-wrap');
+    if (!box) return;
+    var natives = _nativeIntervals[broker] || [];
+    var rows = _intervalDraft[broker] || [];
+    var html = "<table class=\"ti-table\"><thead><tr>" +
+      "<th>Label</th><th>TimeInterval</th><th>Combine as</th><th>Days</th><th>On</th><th></th>" +
+      "</tr></thead><tbody>";
+    rows.forEach(function (row, idx) {
+      html += "<tr data-idx=\"" + idx + "\">" +
+        "<td class=\"ti-label\"><input type=\"text\" data-field=\"label\" value=\"" + (row.label || "").replace(/"/g, "&quot;") + "\" maxlength=\"16\" /></td>" +
+        "<td><select data-field=\"source\">" + optionHtml(natives, row.source) + "</select></td>" +
+        "<td><select data-field=\"resample\">" + optionHtml(_resampleOptions, row.resample || "") + "</select></td>" +
+        "<td class=\"ti-days\"><input type=\"number\" data-field=\"days\" min=\"1\" max=\"7300\" step=\"1\" value=\"" + (row.days || 30) + "\" /></td>" +
+        "<td class=\"ti-on\"><input type=\"checkbox\" data-field=\"enabled\"" + (row.enabled === false ? "" : " checked") + " /></td>" +
+        "<td class=\"ti-del\"><button type=\"button\" class=\"ti-del-btn\" title=\"Remove\">&times;</button></td>" +
+        "</tr>";
+    });
+    html += "</tbody></table>";
+    box.innerHTML = html;
+  }
+
+  function collectIntervalRows(broker) {
+    var box = document.querySelector('.ti-config[data-broker="' + broker + '"] .ti-table-wrap');
+    var rows = [];
+    if (!box) return rows;
+    box.querySelectorAll("tbody tr").forEach(function (tr) {
+      var idx = parseInt(tr.dataset.idx, 10);
+      var prev = (_intervalDraft[broker] || [])[idx] || {};
+      rows.push({
+        id: prev.id || "",
+        label: (tr.querySelector('[data-field="label"]') || {}).value || "",
+        source: (tr.querySelector('[data-field="source"]') || {}).value || "",
+        resample: (tr.querySelector('[data-field="resample"]') || {}).value || "",
+        days: parseInt((tr.querySelector('[data-field="days"]') || {}).value, 10) || 30,
+        enabled: !!(tr.querySelector('[data-field="enabled"]') || {}).checked
+      });
+    });
+    _intervalDraft[broker] = rows;
+    return rows;
+  }
+
+  function renderAllIntervalEditors(data) {
+    if (data && data.broker_native_intervals) {
+      _nativeIntervals = data.broker_native_intervals;
+    }
+    if (data && data.interval_resample_options) {
+      _resampleOptions = data.interval_resample_options;
+    }
+    var all = (data && data.broker_intervals) || {};
+    ["dhan", "5paisa", "yahoo"].forEach(function (broker) {
+      _intervalDraft[broker] = (all[broker] || []).map(function (r) { return Object.assign({}, r); });
+      renderIntervalTable(broker);
+    });
+  }
+
+  document.querySelectorAll(".ti-config").forEach(function (wrap) {
+    var broker = wrap.dataset.broker;
+    var toggle = wrap.querySelector(".ti-config-toggle");
+    var body = wrap.querySelector(".ti-config-body");
+    var chevron = wrap.querySelector(".ta-collapse-btn");
+    if (toggle && body) {
+      toggle.addEventListener("click", function () {
+        body.classList.toggle("hidden");
+        if (chevron) chevron.classList.toggle("open", !body.classList.contains("hidden"));
+      });
+    }
+    wrap.addEventListener("click", function (e) {
+      var del = e.target.closest(".ti-del-btn");
+      if (del) {
+        collectIntervalRows(broker);
+        var tr = del.closest("tr");
+        var idx = tr ? parseInt(tr.dataset.idx, 10) : -1;
+        if (idx >= 0) _intervalDraft[broker].splice(idx, 1);
+        if (!_intervalDraft[broker].length) {
+          _intervalDraft[broker].push({ id: "D", label: "1D", source: "D", resample: "", days: 1825, enabled: true });
+        }
+        renderIntervalTable(broker);
+        return;
+      }
+      if (e.target.closest(".ti-add-btn")) {
+        collectIntervalRows(broker);
+        _intervalDraft[broker].push({
+          id: "",
+          label: "Weekly",
+          source: "D",
+          resample: "W",
+          days: 1825,
+          enabled: true
+        });
+        renderIntervalTable(broker);
+        return;
+      }
+      if (e.target.closest(".ti-save-btn")) {
+        var rows = collectIntervalRows(broker);
+        var msgEl = wrap.querySelector(".ti-msg");
+        fetch("/api/settings/intervals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ broker: broker, intervals: rows })
+        }).then(function (res) { return res.json(); }).then(function (data) {
+          if (!data.success) throw new Error(data.message || "Save failed.");
+          _intervalDraft[broker] = data.intervals || rows;
+          renderIntervalTable(broker);
+          if (window._chartSetBrokerIntervals) {
+            window._chartSetBrokerIntervals(data.broker_intervals || {});
+          }
+          if (msgEl) {
+            msgEl.textContent = "TimeInterval settings saved.";
+            msgEl.className = "message-box success ti-msg";
+            msgEl.classList.remove("hidden");
+            setTimeout(function () { msgEl.classList.add("hidden"); }, 2500);
+          }
+        }).catch(function (err) {
+          if (msgEl) {
+            msgEl.textContent = err.message || "Save failed.";
+            msgEl.className = "message-box error ti-msg";
+            msgEl.classList.remove("hidden");
+          }
+        });
+      }
+    });
+    wrap.addEventListener("change", function () {
+      collectIntervalRows(broker);
     });
   });
 
@@ -490,28 +320,39 @@ document.addEventListener('DOMContentLoaded', function() {
     showMsg("message-box", data.message, !data.success);
   });
 
-  const connectBtn = document.getElementById("connect-btn");
-  if (connectBtn) connectBtn.addEventListener("click", async () => {
+  let _dhanConnecting = false;
+  async function connectDhan() {
+    if (_dhanConnecting) return;
+    _dhanConnecting = true;
     showMsg("message-box", "Connecting\u2026", false);
-    const res  = await fetch("/api/dhan/connect", { method: "POST" });
-    const data = await res.json();
-    showMsg("message-box", data.message, !data.success);
-    setStatus("dhan-status", data.success);
-    if (data.success && data.user) {
-      const u    = data.user;
-      const grid = document.getElementById("user-grid");
-      if (grid) grid.innerHTML = [
-        ["Client ID", u.client_id], ["Token Validity", u.token_validity],
-        ["Active Segments", u.active_segment], ["Available Balance", "\u20b9 " + u.available_balance],
-        ["Utilized Amount", "\u20b9 " + u.utilized_amount], ["Withdrawable", "\u20b9 " + u.withdrawable],
-        ["Collateral", "\u20b9 " + u.collateral],
-      ].filter(r => r[1]).map(r =>
-        `<div class="info-item"><span class="info-label">${r[0]}</span><span class="info-value">${r[1]}</span></div>`
-      ).join("");
-      const sec = document.getElementById("user-info-section");
-      if (sec) sec.style.display = "";
+    try {
+      const res  = await fetch("/api/dhan/connect", { method: "POST" });
+      const data = await res.json();
+      showMsg("message-box", data.message, !data.success);
+      setStatus("dhan-status", data.success);
+      if (window._chartSetConnected) window._chartSetConnected("dhan", data.success);
+      if (data.success && data.user) {
+        const u    = data.user;
+        const grid = document.getElementById("user-grid");
+        if (grid) grid.innerHTML = [
+          ["Client ID", u.client_id], ["Token Validity", u.token_validity],
+          ["Active Segments", u.active_segment], ["Available Balance", "\u20b9 " + u.available_balance],
+          ["Utilized Amount", "\u20b9 " + u.utilized_amount], ["Withdrawable", "\u20b9 " + u.withdrawable],
+          ["Collateral", "\u20b9 " + u.collateral],
+        ].filter(r => r[1]).map(r =>
+          `<div class="info-item"><span class="info-label">${r[0]}</span><span class="info-value">${r[1]}</span></div>`
+        ).join("");
+        const sec = document.getElementById("user-info-section");
+        if (sec) sec.style.display = "";
+      }
+    } catch (e) {
+      showMsg("message-box", "Error: " + e.message, true);
+    } finally {
+      _dhanConnecting = false;
     }
-  });
+  }
+  const connectBtn = document.getElementById("connect-btn");
+  if (connectBtn) connectBtn.addEventListener("click", connectDhan);
 
   const disconnectBtn = document.getElementById("disconnect-btn");
   if (disconnectBtn) disconnectBtn.addEventListener("click", async () => {
@@ -519,6 +360,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const data = await res.json();
     showMsg("message-box", data.message, !data.success);
     setStatus("dhan-status", false);
+    if (window._chartSetConnected) window._chartSetConnected("dhan", false);
     const sec = document.getElementById("user-info-section");
     if (sec) sec.style.display = "none";
   });
@@ -574,32 +416,43 @@ document.addEventListener('DOMContentLoaded', function() {
     showMsg("fp-message-box", data.message, !data.success);
   });
 
-  const fpConnectBtn = document.getElementById("fp-connect-btn");
-  if (fpConnectBtn) fpConnectBtn.addEventListener("click", async () => {
+  let _fpConnecting = false;
+  async function connect5Paisa() {
+    if (_fpConnecting) return;
+    _fpConnecting = true;
     showMsg("fp-message-box", "Connecting\u2026", false);
-    const res  = await fetch("/api/5paisa/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
-    const data = await res.json();
-    showMsg("fp-message-box", data.message, !data.success);
-    setStatus("5paisa-status", data.success);
-    if (data.success && data.user) {
-      const u    = data.user;
-      const grid = document.getElementById("fp-user-grid");
-      if (grid) grid.innerHTML = [
-        ["Client Code", u.client_code],
-        ["Net Available Margin", "\u20b9 " + u.net_available],
-        ["Margin Utilized", "\u20b9 " + u.utilized_margin],
-        ["Collateral", "\u20b9 " + u.collateral],
-        ["Adhoc Margin", "\u20b9 " + u.adhoc_margin],
-        ["Pay-in Amount", "\u20b9 " + u.payin_amount],
-        ["Pay-out Amount", "\u20b9 " + u.payout_amount],
-      ].filter(r => r[1] && r[1] !== "\u20b9 ").map(r =>
-        `<div class="info-item"><span class="info-label">${r[0]}</span><span class="info-value">${r[1]}</span></div>`
-      ).join("");
-      const sec = document.getElementById("fp-user-info-section");
-      if (sec) sec.style.display = "";
-      if (data.token_expiry) showMsg("fp-message-box", "Connected. Token expires: " + data.token_expiry, false);
+    try {
+      const res  = await fetch("/api/5paisa/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      const data = await res.json();
+      showMsg("fp-message-box", data.message, !data.success);
+      setStatus("5paisa-status", data.success);
+      if (window._chartSetConnected) window._chartSetConnected("5paisa", data.success);
+      if (data.success && data.user) {
+        const u    = data.user;
+        const grid = document.getElementById("fp-user-grid");
+        if (grid) grid.innerHTML = [
+          ["Client Code", u.client_code],
+          ["Net Available Margin", "\u20b9 " + u.net_available],
+          ["Margin Utilized", "\u20b9 " + u.utilized_margin],
+          ["Collateral", "\u20b9 " + u.collateral],
+          ["Adhoc Margin", "\u20b9 " + u.adhoc_margin],
+          ["Pay-in Amount", "\u20b9 " + u.payin_amount],
+          ["Pay-out Amount", "\u20b9 " + u.payout_amount],
+        ].filter(r => r[1] && r[1] !== "\u20b9 ").map(r =>
+          `<div class="info-item"><span class="info-label">${r[0]}</span><span class="info-value">${r[1]}</span></div>`
+        ).join("");
+        const sec = document.getElementById("fp-user-info-section");
+        if (sec) sec.style.display = "";
+        if (data.token_expiry) showMsg("fp-message-box", "Connected. Token expires: " + data.token_expiry, false);
+      }
+    } catch (e) {
+      showMsg("fp-message-box", "Error: " + e.message, true);
+    } finally {
+      _fpConnecting = false;
     }
-  });
+  }
+  const fpConnectBtn = document.getElementById("fp-connect-btn");
+  if (fpConnectBtn) fpConnectBtn.addEventListener("click", connect5Paisa);
 
   const fpDisconnectBtn = document.getElementById("fp-disconnect-btn");
   if (fpDisconnectBtn) fpDisconnectBtn.addEventListener("click", async () => {
@@ -607,9 +460,379 @@ document.addEventListener('DOMContentLoaded', function() {
     const data = await res.json();
     showMsg("fp-message-box", data.message, !data.success);
     setStatus("5paisa-status", false);
+    if (window._chartSetConnected) window._chartSetConnected("5paisa", false);
     const sec = document.getElementById("fp-user-info-section");
     if (sec) sec.style.display = "none";
   });
+
+  // ── YAHOO FINANCE ─────────────────────────────────────────────────────────
+
+  async function connectYahoo() {
+    showMsg("yahoo-message-box", "Connecting\u2026", false);
+    try {
+      const urlInp = document.getElementById("yahoo-base-url");
+      const baseUrl = urlInp ? urlInp.value.trim() : "";
+      if (baseUrl) {
+        const saveRes = await fetch("/api/yahoo/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ base_url: baseUrl }),
+        });
+        const saveData = await saveRes.json();
+        if (!saveData.success) {
+          showMsg("yahoo-message-box", saveData.message, true);
+          return;
+        }
+      }
+      const res = await fetch("/api/yahoo/connect", { method: "POST" });
+      const data = await res.json();
+      showMsg("yahoo-message-box", data.message, !data.success);
+      setStatus("yahoo-status", data.success);
+      if (window._chartSetConnected) window._chartSetConnected("yahoo", data.success);
+    } catch (e) {
+      showMsg("yahoo-message-box", "Error: " + e.message, true);
+    }
+  }
+  const yahooSaveBtn = document.getElementById("yahoo-save-btn");
+  if (yahooSaveBtn) yahooSaveBtn.addEventListener("click", async () => {
+    const urlInp = document.getElementById("yahoo-base-url");
+    const res = await fetch("/api/yahoo/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_url: urlInp ? urlInp.value.trim() : "" }),
+    });
+    const data = await res.json();
+    showMsg("yahoo-message-box", data.message, !data.success);
+  });
+  const yahooConnectBtn = document.getElementById("yahoo-connect-btn");
+  if (yahooConnectBtn) yahooConnectBtn.addEventListener("click", connectYahoo);
+
+  async function connectExcel() {
+    showMsg("excel-message-box", "Connecting\u2026", false);
+    try {
+      const res = await fetch("/api/excel/connect", { method: "POST" });
+      const data = await res.json();
+      showMsg("excel-message-box", data.message, !data.success);
+      setStatus("excel-status", data.success);
+      if (window._chartSetConnected) window._chartSetConnected("excel", data.success);
+    } catch (e) {
+      showMsg("excel-message-box", "Error: " + e.message, true);
+    }
+  }
+  const excelConnectBtn = document.getElementById("excel-connect-btn");
+  if (excelConnectBtn) excelConnectBtn.addEventListener("click", connectExcel);
+
+  window._connectBroker = { dhan: connectDhan, "5paisa": connect5Paisa, yahoo: connectYahoo, excel: connectExcel };
+
+  (function excelConfigUi() {
+    var configs = [];
+    var headers = [];
+    var mapping = { date: "", open: "", high: "", low: "", close: "", volume: "" };
+    var indicators = [];
+    var selectedId = "";
+    var skipSheetChange = false;
+
+    function el(id) { return document.getElementById(id); }
+    function showExcelMsg(text, err) { showMsg("excel-message-box", text, !!err); }
+
+    function fillSelect(sel, values, current) {
+      if (!sel) return;
+      var opts = ['<option value="">Select\u2026</option>'];
+      (values || []).forEach(function (v) {
+        var s = String(v);
+        opts.push('<option value="' + s.replace(/"/g, "&quot;") + '"' + (s === current ? " selected" : "") + ">" + s.replace(/</g, "&lt;") + "</option>");
+      });
+      sel.innerHTML = opts.join("");
+      if (current) sel.value = current;
+    }
+
+    function renderList() {
+      var list = el("excel-config-list");
+      if (!list) return;
+      if (!configs.length) {
+        list.innerHTML = '<li class="excel-config-empty">No saved configs yet</li>';
+        return;
+      }
+      list.innerHTML = configs.map(function (c) {
+        var on = c.id === selectedId ? " active" : "";
+        var meta = ((c.workbook || "") + (c.sheet ? " \u00b7 " + c.sheet : "")).replace(/</g, "&lt;");
+        return '<li data-id="' + c.id + '" class="' + on.trim() + '">' +
+          String(c.name || "").replace(/</g, "&lt;") +
+          (meta ? "<small>" + meta + "</small>" : "") +
+          "</li>";
+      }).join("");
+    }
+
+    function renderMap() {
+      var table = el("excel-map-table");
+      if (!table) return;
+      var ohlc = [
+        { key: "date", label: "Date" },
+        { key: "open", label: "Open" },
+        { key: "high", label: "High" },
+        { key: "low", label: "Low" },
+        { key: "close", label: "Close" },
+        { key: "volume", label: "Volume (optional)" }
+      ];
+      function headerOpts(selected) {
+        var html = '<option value="">Select column\u2026</option>';
+        headers.forEach(function (h) {
+          html += '<option value="' + String(h).replace(/"/g, "&quot;") + '"' +
+            (h === selected ? " selected" : "") + ">" + String(h).replace(/</g, "&lt;") + "</option>";
+        });
+        return html;
+      }
+      var html = '<div class="excel-map-core">';
+      ohlc.forEach(function (f) {
+        html += '<div class="excel-map-row"><label>' + f.label + '</label>' +
+          '<select data-map="' + f.key + '">' + headerOpts(mapping[f.key] || "") + "</select></div>";
+      });
+      html += "</div>";
+      if (indicators.length) {
+        html += '<div class="excel-map-title excel-map-title-sub">Indicator columns</div><div class="excel-ind-rows">';
+        indicators.forEach(function (ind, idx) {
+          html += '<div class="excel-ind-row">' +
+            '<input type="text" data-ind-name="' + idx + '" value="' +
+            String(ind.name || "").replace(/"/g, "&quot;") + '" placeholder="Name on chart" />' +
+            '<select data-ind-col="' + idx + '">' + headerOpts(ind.column || "") + "</select>" +
+            '<button type="button" class="excel-ind-del" data-ind-del="' + idx + '" title="Remove">\u00d7</button>' +
+            "</div>";
+        });
+        html += "</div>";
+      }
+      table.innerHTML = html;
+    }
+
+    function readForm() {
+      indicators.forEach(function (ind, idx) {
+        var n = document.querySelector('[data-ind-name="' + idx + '"]');
+        var c = document.querySelector('[data-ind-col="' + idx + '"]');
+        if (n) ind.name = n.value.trim();
+        if (c) ind.column = c.value;
+      });
+      document.querySelectorAll("[data-map]").forEach(function (sel) {
+        mapping[sel.getAttribute("data-map")] = sel.value;
+      });
+      return {
+        id: (el("excel-config-id") && el("excel-config-id").value) || selectedId || "",
+        name: (el("excel-config-name") && el("excel-config-name").value.trim()) || "",
+        workbook: (el("excel-workbook") && el("excel-workbook").value) || "",
+        sheet: (el("excel-sheet") && el("excel-sheet").value) || "",
+        header_row: parseInt(el("excel-header-row") && el("excel-header-row").value, 10) || 0,
+        poll_seconds: parseInt(el("excel-poll-seconds") && el("excel-poll-seconds").value, 10) || 5,
+        mapping: Object.assign({}, mapping),
+        indicators: indicators.map(function (x) { return { name: x.name, column: x.column }; })
+      };
+    }
+
+    function applyConfig(cfg) {
+      cfg = cfg || {};
+      selectedId = cfg.id || "";
+      if (el("excel-config-id")) el("excel-config-id").value = selectedId;
+      if (el("excel-config-name")) el("excel-config-name").value = cfg.name || "";
+      if (el("excel-poll-seconds")) el("excel-poll-seconds").value = cfg.poll_seconds || 5;
+      if (el("excel-header-row")) el("excel-header-row").value = cfg.header_row || "";
+      mapping = Object.assign({ date: "", open: "", high: "", low: "", close: "", volume: "" }, cfg.mapping || {});
+      indicators = (cfg.indicators || []).map(function (x) {
+        return { name: x.name || "", column: x.column || "" };
+      });
+      renderList();
+      renderMap();
+    }
+
+    function blankConfig() {
+      applyConfig({
+        id: "",
+        name: "",
+        poll_seconds: 5,
+        header_row: "",
+        mapping: { date: "", open: "", high: "", low: "", close: "", volume: "" },
+        indicators: []
+      });
+      headers = [];
+      renderMap();
+    }
+
+    async function loadConfigs() {
+      try {
+        var res = await fetch("/api/excel/configs");
+        var data = await res.json();
+        configs = data.configs || [];
+        renderList();
+        if (selectedId) {
+          var found = configs.filter(function (c) { return c.id === selectedId; })[0];
+          if (found) applyConfig(found);
+        }
+      } catch (_) {}
+    }
+
+    async function refreshWorkbooks(keep, silent) {
+      keep = keep || (el("excel-workbook") && el("excel-workbook").value) || "";
+      try {
+        var res = await fetch("/api/excel/workbooks");
+        var data = await res.json();
+        if (!data.success) {
+          fillSelect(el("excel-workbook"), keep ? [keep] : [], keep);
+          if (!silent) showExcelMsg(data.message || "Could not list Excel files.", true);
+          return;
+        }
+        fillSelect(el("excel-workbook"), data.workbooks || [], keep);
+      } catch (e) {
+        if (!silent) showExcelMsg("Error: " + e.message, true);
+      }
+    }
+
+    async function refreshSheets(keep) {
+      var wb = el("excel-workbook") && el("excel-workbook").value;
+      if (!wb) {
+        fillSelect(el("excel-sheet"), [], "");
+        return;
+      }
+      keep = keep || (el("excel-sheet") && el("excel-sheet").value) || "";
+      try {
+        var res = await fetch("/api/excel/sheets?workbook=" + encodeURIComponent(wb));
+        var data = await res.json();
+        if (!data.success) {
+          fillSelect(el("excel-sheet"), keep ? [keep] : [], keep);
+          showExcelMsg(data.message || "Could not list tabs.", true);
+          return;
+        }
+        fillSelect(el("excel-sheet"), data.sheets || [], keep);
+      } catch (e) {
+        showExcelMsg("Error: " + e.message, true);
+      }
+    }
+
+    async function runPreview(manualRow) {
+      var wb = el("excel-workbook") && el("excel-workbook").value;
+      var sh = el("excel-sheet") && el("excel-sheet").value;
+      if (!wb || !sh) return;
+      var body = { workbook: wb, sheet: sh };
+      var row = manualRow != null ? manualRow : (parseInt(el("excel-header-row") && el("excel-header-row").value, 10) || 0);
+      if (row) body.header_row = row;
+      try {
+        var res = await fetch("/api/excel/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        var data = await res.json();
+        if (!data.success) {
+          showExcelMsg(data.message || "Preview failed.", true);
+          return;
+        }
+        headers = data.headers || [];
+        if (el("excel-header-row")) el("excel-header-row").value = data.header_row || "";
+        if (!row) {
+          mapping = Object.assign(mapping, data.mapping || {});
+        }
+        renderMap();
+        showExcelMsg("Header row " + data.header_row + " \u2014 " + headers.length + " columns.", false);
+      } catch (e) {
+        showExcelMsg("Error: " + e.message, true);
+      }
+    }
+
+    if (el("excel-refresh-files")) el("excel-refresh-files").addEventListener("click", function () {
+      refreshWorkbooks();
+    });
+    if (el("excel-workbook")) el("excel-workbook").addEventListener("change", async function () {
+      await refreshSheets("");
+      if (el("excel-sheet") && el("excel-sheet").value) runPreview(0);
+    });
+    if (el("excel-sheet")) el("excel-sheet").addEventListener("change", function () {
+      if (skipSheetChange) return;
+      runPreview(0);
+    });
+    if (el("excel-header-row")) el("excel-header-row").addEventListener("change", function () {
+      var row = parseInt(el("excel-header-row").value, 10) || 0;
+      if (row) runPreview(row);
+    });
+    if (el("excel-detect-btn")) el("excel-detect-btn").addEventListener("click", function () {
+      if (el("excel-header-row")) el("excel-header-row").value = "";
+      runPreview(0);
+    });
+    if (el("excel-add-ind")) el("excel-add-ind").addEventListener("click", function () {
+      var form = readForm();
+      mapping = form.mapping;
+      indicators = form.indicators;
+      indicators.push({ name: "Indicator" + (indicators.length + 1), column: "" });
+      renderMap();
+    });
+    var mapTable = el("excel-map-table");
+    if (mapTable) mapTable.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-ind-del]");
+      if (!btn) return;
+      var form = readForm();
+      mapping = form.mapping;
+      indicators = form.indicators;
+      var idx = parseInt(btn.getAttribute("data-ind-del"), 10);
+      if (idx >= 0) indicators.splice(idx, 1);
+      renderMap();
+    });
+    if (el("excel-new-btn")) el("excel-new-btn").addEventListener("click", function () {
+      blankConfig();
+    });
+    if (el("excel-config-list")) el("excel-config-list").addEventListener("click", async function (e) {
+      var li = e.target.closest("li[data-id]");
+      if (!li) return;
+      var found = configs.filter(function (c) { return c.id === li.dataset.id; })[0];
+      if (!found) return;
+      applyConfig(found);
+      skipSheetChange = true;
+      await refreshWorkbooks(found.workbook);
+      await refreshSheets(found.sheet);
+      skipSheetChange = false;
+      if (found.workbook && found.sheet) {
+        await runPreview(found.header_row || 0);
+        mapping = Object.assign(mapping, found.mapping || {});
+        indicators = (found.indicators || []).map(function (x) {
+          return { name: x.name || "", column: x.column || "" };
+        });
+        renderMap();
+      }
+    });
+    if (el("excel-save-btn")) el("excel-save-btn").addEventListener("click", async function () {
+      var cfg = readForm();
+      if (!cfg.name) { showExcelMsg("Config Name is required.", true); return; }
+      if (!cfg.workbook || !cfg.sheet) { showExcelMsg("Select an open Excel file and tab.", true); return; }
+      try {
+        var res = await fetch("/api/excel/configs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ config: cfg })
+        });
+        var data = await res.json();
+        if (!data.success) { showExcelMsg(data.message || "Save failed.", true); return; }
+        configs = data.configs || [];
+        var match = configs.filter(function (c) { return c.name === cfg.name; }).pop();
+        selectedId = (match && match.id) || cfg.id;
+        if (el("excel-config-id")) el("excel-config-id").value = selectedId;
+        renderList();
+        showExcelMsg("Config saved.", false);
+      } catch (e) {
+        showExcelMsg("Error: " + e.message, true);
+      }
+    });
+    if (el("excel-delete-btn")) el("excel-delete-btn").addEventListener("click", async function () {
+      var id = (el("excel-config-id") && el("excel-config-id").value) || selectedId;
+      if (!id) { blankConfig(); return; }
+      try {
+        var res = await fetch("/api/excel/configs/" + encodeURIComponent(id), { method: "DELETE" });
+        var data = await res.json();
+        configs = data.configs || [];
+        blankConfig();
+        renderList();
+        showExcelMsg("Config deleted.", false);
+      } catch (e) {
+        showExcelMsg("Error: " + e.message, true);
+      }
+    });
+
+    renderMap();
+    loadConfigs();
+    refreshWorkbooks("", true);
+  })();
 
 })();
 
@@ -619,19 +842,71 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Broker visibility ──────────────────────────────────────────────────────
 
   function applyBrokerVisibility(broker, enabled) {
-    var cbrok = document.querySelector('.cbrok-btn[data-cbrok="' + broker + '"]');
-    if (cbrok) cbrok.style.display = enabled ? '' : 'none';
+    window._brokerEnabled = window._brokerEnabled || {};
+    window._brokerEnabled[broker] = !!enabled;
     var tab = document.querySelector('.tab-btn[data-broker="' + broker + '"]');
     if (tab) {
       tab.style.display = enabled ? '' : 'none';
       if (!enabled && tab.classList.contains('active')) {
-        var other = document.querySelector('.tab-btn[data-broker]:not([data-broker="' + broker + '"])');
-        if (other && other.style.display !== 'none') other.click();
+        var others = document.querySelectorAll('.tab-btn[data-broker]');
+        for (var i = 0; i < others.length; i++) {
+          if (others[i] !== tab && others[i].style.display !== 'none') {
+            others[i].click();
+            break;
+          }
+        }
       }
     }
     if (!enabled) {
       var panel = document.getElementById('panel-' + broker);
       if (panel) panel.classList.add('hidden');
+    }
+    var cbtn = document.querySelector('.cbrok-btn[data-broker="' + broker + '"]');
+    if (cbtn) cbtn.style.display = enabled ? '' : 'none';
+    if (window._chartSetBrokerEnabled) window._chartSetBrokerEnabled(broker, enabled);
+  }
+
+  function applyOptionAnalysisVisibility() {
+    var en = window._brokerEnabled || {};
+    var yahooOnly = !en.dhan && !en['5paisa'] && (!!en.yahoo || !!en.excel);
+    var acc = document.querySelector('.nav-accordion');
+    if (acc) acc.classList.toggle('nav-disabled', yahooOnly);
+    if (yahooOnly) {
+      var optionPages = { 'option-chain': 1, 'open-interest': 1, 'gamma-exposure': 1, 'option-strategy': 1 };
+      var active = document.querySelector('.page.active');
+      var pageId = active && active.id ? active.id.replace(/^page-/, '') : '';
+      if (optionPages[pageId]) {
+        var home = document.querySelector('.nav-item[data-page="home"]');
+        if (home) home.click();
+      }
+    }
+  }
+
+  var _autoConnectStarted = false;
+  function autoConnectSingleBroker(data) {
+    if (_autoConnectStarted || !window._connectBroker) return;
+    var dhanOn = data.dhan_enabled !== false;
+    var fpOn = data['5paisa_enabled'] !== false;
+    var yahooOn = !!data.yahoo_enabled;
+    var excelOn = !!data.excel_enabled;
+    var connected = window._brokerConnected || {};
+    var enabledCount = (dhanOn ? 1 : 0) + (fpOn ? 1 : 0) + (yahooOn ? 1 : 0) + (excelOn ? 1 : 0);
+    if (yahooOn && !connected.yahoo && window._connectBroker.yahoo) {
+      window._connectBroker.yahoo();
+      if (enabledCount === 1) _autoConnectStarted = true;
+    }
+    if (excelOn && !connected.excel && window._connectBroker.excel) {
+      window._connectBroker.excel();
+      if (enabledCount === 1) _autoConnectStarted = true;
+    }
+    if (dhanOn && !fpOn && !yahooOn) {
+      if (connected.dhan) return;
+      _autoConnectStarted = true;
+      window._connectBroker.dhan();
+    } else if (fpOn && !dhanOn && !yahooOn) {
+      if (connected['5paisa']) return;
+      _autoConnectStarted = true;
+      window._connectBroker['5paisa']();
     }
   }
 
@@ -644,12 +919,26 @@ document.addEventListener('DOMContentLoaded', function() {
       var apiChk  = document.getElementById('setting-enable-api');
       var dhanChk = document.getElementById('setting-enable-dhan');
       var fpChk   = document.getElementById('setting-enable-5paisa');
+      var yfChk   = document.getElementById('setting-enable-yahoo');
+      var xlChk   = document.getElementById('setting-enable-excel');
       if (apiChk)  { apiChk.checked  = !!data.api_enabled;              toggleApiPanel(apiChk.checked); }
       if (dhanChk) { dhanChk.checked = data.dhan_enabled !== false;      applyBrokerVisibility('dhan',   dhanChk.checked); }
       if (fpChk)   { fpChk.checked   = data['5paisa_enabled'] !== false; applyBrokerVisibility('5paisa', fpChk.checked); }
+      if (yfChk)   { yfChk.checked   = !!data.yahoo_enabled;            applyBrokerVisibility('yahoo',  yfChk.checked); }
+      if (xlChk)   { xlChk.checked   = !!data.excel_enabled;            applyBrokerVisibility('excel',  xlChk.checked); }
+      if (data.yahoo_base_url) {
+        var yUrl = document.getElementById('yahoo-base-url');
+        if (yUrl && !yUrl.value) yUrl.value = data.yahoo_base_url;
+      }
+      applyOptionAnalysisVisibility();
       var ri = document.getElementById('chart-refresh-interval');
       if (ri && data.chart_refresh_interval !== undefined) ri.value = data.chart_refresh_interval;
       if (window._chartSetRefreshInterval) window._chartSetRefreshInterval(data.chart_refresh_interval || 0);
+      if (window._chartSetBrokerIntervals) {
+        window._chartSetBrokerIntervals(data.broker_intervals || {});
+      }
+      renderAllIntervalEditors(data);
+      autoConnectSingleBroker(data);
     } catch (_) {}
     loadTaSettings();
 
@@ -836,6 +1125,7 @@ document.addEventListener('DOMContentLoaded', function() {
       body: JSON.stringify({ dhan_enabled: dhanToggle.checked }),
     });
     applyBrokerVisibility('dhan', dhanToggle.checked);
+    applyOptionAnalysisVisibility();
   });
 
   var fpToggle = document.getElementById('setting-enable-5paisa');
@@ -845,24 +1135,72 @@ document.addEventListener('DOMContentLoaded', function() {
       body: JSON.stringify({ '5paisa_enabled': fpToggle.checked }),
     });
     applyBrokerVisibility('5paisa', fpToggle.checked);
+    applyOptionAnalysisVisibility();
+  });
+
+  var yahooToggle = document.getElementById('setting-enable-yahoo');
+  if (yahooToggle) yahooToggle.addEventListener('change', async function() {
+    await fetch('/api/settings/brokers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ yahoo_enabled: yahooToggle.checked }),
+    });
+    applyBrokerVisibility('yahoo', yahooToggle.checked);
+    applyOptionAnalysisVisibility();
+    if (yahooToggle.checked && window._connectBroker && window._connectBroker.yahoo) {
+      window._connectBroker.yahoo();
+    } else if (!yahooToggle.checked && window._chartSetConnected) {
+      window._chartSetConnected('yahoo', false);
+      var st = document.getElementById('yahoo-status');
+      if (st) st.innerHTML = '<span class="badge disconnected">\u25cf Disabled</span>';
+    }
+  });
+
+  var excelToggle = document.getElementById('setting-enable-excel');
+  if (excelToggle) excelToggle.addEventListener('change', async function() {
+    await fetch('/api/settings/brokers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ excel_enabled: excelToggle.checked }),
+    });
+    applyBrokerVisibility('excel', excelToggle.checked);
+    applyOptionAnalysisVisibility();
+    if (excelToggle.checked && window._connectBroker && window._connectBroker.excel) {
+      window._connectBroker.excel();
+    } else if (!excelToggle.checked && window._chartSetConnected) {
+      window._chartSetConnected('excel', false);
+      var st = document.getElementById('excel-status');
+      if (st) st.innerHTML = '<span class="badge disconnected">\u25cf Disabled</span>';
+    }
   });
 
   // ── Technical Indicators ───────────────────────────────────────────────────
 
   var _taCatalog   = {};   // loaded from /public/api/ta/catalog
+  var _taCustomCatalog = []; // line-chart custom indicators
   var _taIndicators = [];  // current list of configured indicators
+  var _TA_SMOOTH_MODELS = [
+    { id: 'savgol', label: 'Savitzky-Golay' },
+    { id: 'gaussian', label: 'Gaussian Kernel' },
+    { id: 'kernel_poly', label: 'Kernel Poly' },
+  ];
+  var _TA_SMOOTH_FACTORY = {
+    levels: [
+      { enabled: true, input: 'price', model: 'savgol', window: 11, polyorder: 3, bandwidth: 3, degree: 2 },
+      { enabled: true, input: 'ce1', model: 'gaussian', window: 11, polyorder: 3, bandwidth: 3, degree: 2 },
+      { enabled: true, input: 'ce2', model: 'kernel_poly', window: 11, polyorder: 3, bandwidth: 8, degree: 2 },
+      { enabled: true, input: 'ce3', model: 'gaussian', window: 11, polyorder: 3, bandwidth: 6, degree: 2 },
+    ],
+  };
 
   async function loadTaSettings() {
-    // Load catalog
     try {
       var r = await fetch('/public/api/ta/catalog');
       var d = await r.json();
       if (d.success) {
-        _taCatalog = d.indicators;
+        _taCatalog = d.indicators || {};
+        _taCustomCatalog = d.custom_indicators || [];
         _populateTaTypeSelect();
       }
     } catch (_) {}
-    // Load saved config
     try {
       var r2 = await fetch('/api/settings/indicators');
       var d2 = await r2.json();
@@ -873,12 +1211,121 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (_) {}
   }
 
+  function _customMeta(id) {
+    for (var i = 0; i < _taCustomCatalog.length; i++) {
+      if (_taCustomCatalog[i].id === id) return _taCustomCatalog[i];
+    }
+    return null;
+  }
+
+  function _isCustomInd(ind) {
+    return !!(ind && (ind.source === 'custom' || _customMeta(ind.type)));
+  }
+
+  function _isSmoothingInd(ind) {
+    var meta = _customMeta(ind && ind.type);
+    return !!(meta && (meta.ui === 'smoothing' || meta.id === 'smoothing'));
+  }
+
+  function _cloneJson(v) {
+    return JSON.parse(JSON.stringify(v));
+  }
+
+  function _smoothingFactory(meta) {
+    var src = (meta && meta.factory) || _TA_SMOOTH_FACTORY;
+    return _cloneJson(src);
+  }
+
+  function _normalizeSmoothingParams(raw, meta) {
+    var factory = _smoothingFactory(meta);
+    var srcLevels = (raw && raw.levels) || [];
+    var levels = [];
+    for (var i = 0; i < 4; i++) {
+      var base = factory.levels[i] || _TA_SMOOTH_FACTORY.levels[i];
+      var row = Object.assign({}, base, (srcLevels[i] && typeof srcLevels[i] === 'object') ? srcLevels[i] : {});
+      var allowed = ['price'].concat([1, 2, 3, 4].slice(0, i).map(function(n) { return 'ce' + n; }));
+      var inp = String(row.input || '').toLowerCase();
+      if (inp === 'close') inp = 'price';
+      if (inp.indexOf('ac_') === 0) inp = inp.slice(3);
+      row.input = allowed.indexOf(inp) >= 0 ? inp : allowed[allowed.length - 1];
+      var model = String(row.model || 'savgol').toLowerCase();
+      if (model === 'savitzky-golay') model = 'savgol';
+      if (model === 'gaussian kernel') model = 'gaussian';
+      if (model === 'kernel poly') model = 'kernel_poly';
+      if (['savgol', 'gaussian', 'kernel_poly', 'none'].indexOf(model) < 0) model = 'savgol';
+      row.model = model;
+      row.enabled = row.enabled !== false && row.enabled !== 0 && row.enabled !== '0';
+      row.window = Number(row.window); if (!isFinite(row.window)) row.window = 11;
+      row.polyorder = Number(row.polyorder); if (!isFinite(row.polyorder)) row.polyorder = 3;
+      row.bandwidth = Number(row.bandwidth); if (!isFinite(row.bandwidth)) row.bandwidth = 3;
+      row.degree = Number(row.degree); if (!isFinite(row.degree)) row.degree = 2;
+      levels.push(row);
+    }
+    return { levels: levels };
+  }
+
+  function _optionHtml(opts, selected) {
+    return opts.map(function(o) {
+      var id = o.id || o;
+      var label = o.label || o;
+      return '<option value="' + id + '"' + (id === selected ? ' selected' : '') + '>' + label + '</option>';
+    }).join('');
+  }
+
+  function _smoothInputOptions(level) {
+    var opts = [{ id: 'price', label: 'Price' }];
+    for (var i = 1; i < level; i++) opts.push({ id: 'ce' + i, label: 'CE' + i });
+    return opts;
+  }
+
+  function _syncTaSmoothVisibility(root) {
+    if (!root) return;
+    root.querySelectorAll('.ce-level').forEach(function(card) {
+      var modelEl = card.querySelector('.ce-model');
+      var model = modelEl ? modelEl.value : 'savgol';
+      card.querySelectorAll('[data-for]').forEach(function(row) {
+        var keys = (row.getAttribute('data-for') || '').split(',');
+        row.style.display = keys.indexOf(model) >= 0 ? '' : 'none';
+      });
+    });
+  }
+
+  function _customDefaultParams(meta) {
+    if (!meta) return {};
+    if (meta.ui === 'smoothing' || meta.id === 'smoothing') {
+      return _normalizeSmoothingParams(_smoothingFactory(meta), meta);
+    }
+    var params = {};
+    (meta.params || []).forEach(function(p) { params[p.key] = p.def; });
+    return params;
+  }
+
   function _populateTaTypeSelect() {
     var sel = document.getElementById('ta-type-select');
     if (!sel) return;
-    sel.innerHTML = Object.keys(_taCatalog).map(function(k) {
+    var html = '<optgroup label="Technical Indicators">';
+    html += Object.keys(_taCatalog).map(function(k) {
       return '<option value="' + k + '">' + _taCatalog[k].label + '</option>';
     }).join('');
+    html += '</optgroup>';
+    if (_taCustomCatalog.length) {
+      html += '<optgroup label="Custom Indicators">';
+      html += _taCustomCatalog.map(function(m) {
+        return '<option value="custom:' + m.id + '">' + (m.name || m.id) + '</option>';
+      }).join('');
+      html += '</optgroup>';
+    }
+    sel.innerHTML = html;
+  }
+
+  function _uniqueTaId(base) {
+    var id = base;
+    var n = 2;
+    while (_taIndicators.some(function(x) { return x.id === id; })) {
+      id = base + '_' + n;
+      n += 1;
+    }
+    return id;
   }
 
   function _makeIndicatorId(type, params) {
@@ -886,6 +1333,96 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!p.length) return type;
     var vals = p.map(function(pd) { return params[pd.name] || pd.default; });
     return type + '_' + vals.join('_');
+  }
+
+  function _taFieldKeys(ind) {
+    if (_isSmoothingInd(ind)) {
+      var meta = _customMeta(ind.type);
+      var cfg = _normalizeSmoothingParams(ind.params, meta);
+      var keys = [];
+      cfg.levels.forEach(function(row, i) {
+        if (row.enabled) keys.push(ind.id + '_ce' + (i + 1));
+      });
+      return keys;
+    }
+    return [ind.id];
+  }
+
+  function _renderSmoothingParams(ind, idx) {
+    var meta = _customMeta(ind.type);
+    var cfg = _normalizeSmoothingParams(ind.params, meta);
+    var html = '<div class="ce-levels" data-idx="' + idx + '">';
+    cfg.levels.forEach(function(row, i) {
+      var lvl = i + 1;
+      html += '<div class="ce-level" data-lvl="' + lvl + '">';
+      html += '<div class="ce-level-head"><strong>CE' + lvl + '</strong>';
+      html += '<label class="toggle-switch"><input type="checkbox" class="ce-enabled"' + (row.enabled ? ' checked' : '') + ' /><span class="toggle-slider"></span></label></div>';
+      html += '<div class="ce-level-grid">';
+      html += '<div class="ind-param-row"><label>Input</label><select class="ce-input ta-param-select">' + _optionHtml(_smoothInputOptions(lvl), row.input) + '</select></div>';
+      html += '<div class="ind-param-row"><label>Engine</label><select class="ce-model ta-param-select">' + _optionHtml(_TA_SMOOTH_MODELS, row.model) + '</select></div>';
+      html += '<div class="ce-span-2 ce-params">';
+      html += '<div class="ind-param-row" data-for="savgol"><label>Window</label><input type="number" class="ce-window ta-param-input" min="3" max="501" step="1" value="' + row.window + '" /></div>';
+      html += '<div class="ind-param-row" data-for="savgol"><label>Polyorder</label><input type="number" class="ce-polyorder ta-param-input" min="1" max="15" step="1" value="' + row.polyorder + '" /></div>';
+      html += '<div class="ind-param-row" data-for="gaussian,kernel_poly"><label>Bandwidth</label><input type="number" class="ce-bandwidth ta-param-input" min="0.1" max="500" step="0.1" value="' + row.bandwidth + '" /></div>';
+      html += '<div class="ind-param-row" data-for="kernel_poly"><label>Degree</label><input type="number" class="ce-degree ta-param-input" min="1" max="8" step="1" value="' + row.degree + '" /></div>';
+      html += '</div></div></div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function _readSmoothingFromRow(rowEl, meta) {
+    var factory = _smoothingFactory(meta);
+    var levels = [];
+    var cards = rowEl.querySelectorAll('.ce-level');
+    for (var i = 0; i < 4; i++) {
+      var card = cards[i];
+      var base = factory.levels[i] || _TA_SMOOTH_FACTORY.levels[i];
+      if (!card) { levels.push(Object.assign({}, base)); continue; }
+      var num = function(sel, fallback) {
+        var el = card.querySelector(sel);
+        var n = el ? parseFloat(el.value) : fallback;
+        return isFinite(n) ? n : fallback;
+      };
+      var chk = function(sel) {
+        var el = card.querySelector(sel);
+        return !!(el && el.checked);
+      };
+      var val = function(sel, fallback) {
+        var el = card.querySelector(sel);
+        return el && el.value ? el.value : fallback;
+      };
+      levels.push({
+        enabled: chk('.ce-enabled'),
+        input: val('.ce-input', base.input),
+        model: val('.ce-model', base.model),
+        window: Math.round(num('.ce-window', base.window)),
+        polyorder: Math.round(num('.ce-polyorder', base.polyorder)),
+        bandwidth: num('.ce-bandwidth', base.bandwidth),
+        degree: Math.round(num('.ce-degree', base.degree)),
+      });
+    }
+    return _normalizeSmoothingParams({ levels: levels }, meta);
+  }
+
+  function _renderCustomParamInputs(ind, idx, meta) {
+    return (meta.params || []).map(function(pd) {
+      var val = (ind.params && ind.params[pd.key] !== undefined) ? ind.params[pd.key] : pd.def;
+      if (pd.type === 'bool') {
+        return '<span class="ta-param-group">' +
+          '<span class="ta-param-label">' + (pd.label || pd.key) + ':</span>' +
+          '<input class="ta-custom-param" type="checkbox" data-idx="' + idx + '" data-param="' + pd.key + '" data-ptype="bool"' + (val ? ' checked' : '') + ' />' +
+          '</span>';
+      }
+      return '<span class="ta-param-group">' +
+        '<span class="ta-param-label">' + (pd.label || pd.key) + ':</span>' +
+        '<input class="ta-param-input ta-custom-param" type="number" data-idx="' + idx + '" data-param="' + pd.key + '"' +
+          (pd.min != null ? ' min="' + pd.min + '"' : '') +
+          (pd.max != null ? ' max="' + pd.max + '"' : '') +
+          (pd.step != null ? ' step="' + pd.step + '"' : '') +
+          ' value="' + val + '" />' +
+        '</span>';
+    }).join('');
   }
 
   function _renderTaRows() {
@@ -896,23 +1433,35 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
     list.innerHTML = _taIndicators.map(function(ind, idx) {
+      var isCustom = _isCustomInd(ind);
+      var meta = isCustom ? _customMeta(ind.type) : null;
+      var label = isCustom ? ((meta && meta.name) || ind.type) : ((_taCatalog[ind.type] && _taCatalog[ind.type].label) || ind.type);
       var cat = _taCatalog[ind.type] || { label: ind.type, params: [] };
-      var paramHtml = cat.params.map(function(pd) {
-        var val = (ind.params && ind.params[pd.name] !== undefined) ? ind.params[pd.name] : pd.default;
-        return '<span class="ta-param-group">' +
-          '<span class="ta-param-label">' + pd.name + ':</span>' +
-          '<input class="ta-param-input" type="number" data-idx="' + idx + '" data-param="' + pd.name + '" min="' + pd.min + '" max="' + pd.max + '" value="' + val + '" />' +
-          '</span>';
-      }).join('');
-      return '<div class="ta-indicator-row" data-idx="' + idx + '">' +
-        '<span class="ta-row-label">' + cat.label + '</span>' +
+      var paramHtml;
+      if (isCustom && _isSmoothingInd(ind)) {
+        paramHtml = _renderSmoothingParams(ind, idx);
+      } else if (isCustom && meta) {
+        paramHtml = _renderCustomParamInputs(ind, idx, meta);
+      } else {
+        paramHtml = cat.params.map(function(pd) {
+          var val = (ind.params && ind.params[pd.name] !== undefined) ? ind.params[pd.name] : pd.default;
+          return '<span class="ta-param-group">' +
+            '<span class="ta-param-label">' + pd.name + ':</span>' +
+            '<input class="ta-param-input" type="number" data-idx="' + idx + '" data-param="' + pd.name + '" min="' + pd.min + '" max="' + pd.max + '" value="' + val + '" />' +
+            '</span>';
+        }).join('');
+      }
+      var keys = _taFieldKeys(ind);
+      return '<div class="ta-indicator-row' + (isCustom ? ' ta-custom-row' : '') + '" data-idx="' + idx + '">' +
+        '<span class="ta-row-label">' + label + (isCustom ? ' <span class="ta-param-label">(custom)</span>' : '') + '</span>' +
         '<div class="ta-row-params">' + paramHtml + '</div>' +
         '<button class="ta-remove-btn" data-idx="' + idx + '" title="Remove">\u00d7</button>' +
-        '<span class="ta-row-id">key: ' + ind.id + '</span>' +
+        '<span class="ta-row-id">fields: ' + keys.join(', ') + '</span>' +
         '</div>';
     }).join('');
-    // Bind param change
-    list.querySelectorAll('.ta-param-input').forEach(function(inp) {
+
+    list.querySelectorAll('.ta-param-input:not(.ta-custom-param)').forEach(function(inp) {
+      if (inp.closest('.ce-level')) return;
       inp.addEventListener('change', function() {
         var i = parseInt(this.dataset.idx);
         var param = this.dataset.param;
@@ -924,7 +1473,37 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       });
     });
-    // Bind remove
+    list.querySelectorAll('.ta-custom-param').forEach(function(inp) {
+      inp.addEventListener('change', function() {
+        var i = parseInt(this.dataset.idx);
+        var param = this.dataset.param;
+        if (!_taIndicators[i]) return;
+        if (!_taIndicators[i].params) _taIndicators[i].params = {};
+        if (this.type === 'checkbox' || this.dataset.ptype === 'bool') {
+          _taIndicators[i].params[param] = this.checked;
+        } else {
+          var n = parseFloat(this.value);
+          _taIndicators[i].params[param] = isFinite(n) ? n : this.value;
+        }
+      });
+    });
+    list.querySelectorAll('.ce-levels').forEach(function(wrap) {
+      _syncTaSmoothVisibility(wrap);
+      var idx = parseInt(wrap.dataset.idx);
+      var sync = function() {
+        if (!_taIndicators[idx]) return;
+        _taIndicators[idx].params = _readSmoothingFromRow(wrap, _customMeta(_taIndicators[idx].type));
+        var keysEl = wrap.closest('.ta-indicator-row');
+        if (keysEl) {
+          var idEl = keysEl.querySelector('.ta-row-id');
+          if (idEl) idEl.textContent = 'fields: ' + _taFieldKeys(_taIndicators[idx]).join(', ');
+        }
+        _syncTaSmoothVisibility(wrap);
+      };
+      wrap.querySelectorAll('input, select').forEach(function(el) {
+        el.addEventListener('change', sync);
+      });
+    });
     list.querySelectorAll('.ta-remove-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
         var i = parseInt(this.dataset.idx);
@@ -962,15 +1541,25 @@ document.addEventListener('DOMContentLoaded', function() {
   if (taAddBtn) taAddBtn.addEventListener('click', function() {
     var sel  = document.getElementById('ta-type-select');
     if (!sel || !sel.value) return;
-    var type = sel.value;
+    var raw = sel.value;
+    if (raw.indexOf('custom:') === 0) {
+      var cid = raw.slice(7);
+      var meta = _customMeta(cid);
+      if (!meta) { _showTaSaveMsg('Custom indicator not available.', true); return; }
+      var params = _customDefaultParams(meta);
+      var id = _uniqueTaId(cid);
+      _taIndicators.push({ id: id, type: cid, source: 'custom', params: params });
+      _renderTaRows();
+      return;
+    }
+    var type = raw;
     var cat  = _taCatalog[type] || { params: [] };
     var params = {};
     cat.params.forEach(function(pd) { params[pd.name] = pd.default; });
     var id = _makeIndicatorId(type, params);
-    // Prevent exact duplicate
     var exists = _taIndicators.some(function(x) { return x.id === id; });
     if (exists) { _showTaSaveMsg('Indicator already added.', true); return; }
-    _taIndicators.push({ id: id, type: type, params: params });
+    _taIndicators.push({ id: id, type: type, source: 'builtin', params: params });
     _renderTaRows();
   });
 
@@ -1007,18 +1596,23 @@ document.addEventListener('DOMContentLoaded', function() {
       var data = await res.json();
       var el   = document.getElementById('scrip-master-status');
       if (el) {
-        if (data.loaded) {
+        if (data.loading) {
+          el.textContent = 'Updating Instrument.csv\u2026';
+        } else if (data.loaded) {
           var src = data.cache_exists ? 'Instrument.csv' : 'memory';
+          var age = (data.cache_age_days != null) ? (' \u2014 ' + data.cache_age_days + ' days old') : '';
           el.textContent = 'Loaded \u2014 ' + data.count.toLocaleString() +
             ' instruments from ' + src +
-            (data.last_loaded ? ' (' + data.last_loaded + ')' : '');
-        } else if (data.loading) {
-          el.textContent = 'Loading\u2026';
+            (data.last_loaded ? ' (' + data.last_loaded + ')' : '') + age +
+            (data.stale ? ' \u2014 refresh in progress' : '');
         } else if (data.cache_exists) {
           el.textContent = 'Instrument.csv found \u2014 connect or Update to load.';
         } else {
           el.textContent = 'Not loaded. Connect to 5Paisa to download Instrument.csv.';
         }
+      }
+      if (data.loading) {
+        setTimeout(loadScripStatus, 4000);
       }
     } catch (_) {}
   }
@@ -1171,6 +1765,7 @@ document.addEventListener('DOMContentLoaded', function() {
   var OC_DEFAULT_PRICE = [
     { key: 'oi', label: 'OI', visible: true },
     { key: 'oi_chg', label: 'OI Chg', visible: true },
+    { key: 'interp', label: 'Int.', visible: true },
     { key: 'volume', label: 'Volume', visible: true },
     { key: 'chg', label: 'Chg', visible: true },
     { key: 'chg_pct', label: 'Chg%', visible: true },
