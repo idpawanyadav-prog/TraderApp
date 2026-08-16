@@ -15,14 +15,61 @@
     document.documentElement.setAttribute("data-theme",
       localStorage.getItem("app_theme") === "light" ? "light" : "dark");
   </script>
-  <link rel="stylesheet" href="/static/css/style.css?v=yf1" />
+  <link rel="stylesheet" href="/static/css/style.css?v=yf7" />
 </head>
 <body>
 
 <header>
-  <button class="sidebar-toggle" id="sidebar-toggle">☰</button>
   <div class="logo">📈 TraderApp</div>
   <span class="phase-badge">Phase 1</span>
+  <nav class="topnav" id="sidebar">
+    <ul class="nav-list">
+      <li>
+        <a class="nav-item active" data-page="home" href="#">
+          <span class="nav-icon">🏠</span> Home
+        </a>
+      </li>
+      <li class="nav-accordion" id="nav-analysis">
+        <button type="button" class="nav-item nav-parent" id="nav-analysis-btn" aria-expanded="false">
+          Analysis
+          <span class="nav-chevron">▾</span>
+        </button>
+        <div class="nav-mega">
+          <div class="nav-mega-col">
+            <div class="nav-mega-heading">Statistic Analysis</div>
+            <a class="nav-item nav-subitem" data-page="correlation-density" href="#">
+              <span class="nav-icon">📊</span> Correlation
+            </a>
+          </div>
+          <div class="nav-mega-col{% if yahoo_enabled and not dhan_enabled and not fp_enabled %} nav-disabled{% endif %}" id="nav-option-col">
+            <div class="nav-mega-heading">Option Analysis</div>
+            <a class="nav-item nav-subitem" data-page="option-chain" href="#">
+              <span class="nav-icon">⛓️</span> Option Chain
+            </a>
+            <a class="nav-item nav-subitem" data-page="open-interest" href="#">
+              <span class="nav-icon">📉</span> Open Interest
+            </a>
+            <a class="nav-item nav-subitem" data-page="gamma-exposure" href="#">
+              <span class="nav-icon">γ</span> Gamma Exposure
+            </a>
+            <a class="nav-item nav-subitem" data-page="option-strategy" href="#">
+              <span class="nav-icon">📐</span> Option Strategy Builder
+            </a>
+          </div>
+        </div>
+      </li>
+      <li>
+        <a class="nav-item" data-page="connect-broker" href="#">
+          <span class="nav-icon">🔌</span> Connect to Broker
+        </a>
+      </li>
+      <li>
+        <a class="nav-item" data-page="settings" href="#">
+          <span class="nav-icon">⚙️</span> Settings
+        </a>
+      </li>
+    </ul>
+  </nav>
   <div class="theme-switch" id="theme-switch" title="Switch theme">
     <button class="theme-opt" data-theme-opt="dark" id="theme-opt-dark">🌙 Dark</button>
     <button class="theme-opt" data-theme-opt="light" id="theme-opt-light">☀️ White</button>
@@ -31,162 +78,154 @@
 
 <div class="app-shell">
 
-  <!-- ── Sidebar ── -->
-  <nav class="sidebar" id="sidebar">
-    <ul class="nav-list">
-      <li class="nav-group-label">Main</li>
-      <li>
-        <a class="nav-item active" data-page="home" href="#">
-          <span class="nav-icon">🏠</span> Home
-        </a>
-      </li>
-      <li class="nav-group-label">Broker</li>
-      <li>
-        <a class="nav-item" data-page="connect-broker" href="#">
-          <span class="nav-icon">🔌</span> Connect to Broker
-        </a>
-      </li>
-      <li class="nav-group-label">Analysis</li>
-      <li>
-        <a class="nav-item" data-page="correlation-density" href="#">
-          <span class="nav-icon">📊</span> Correlation Density Curve
-        </a>
-      </li>
-      <li class="nav-accordion{% if yahoo_enabled and not dhan_enabled and not fp_enabled %} nav-disabled{% endif %}">
-        <button type="button" class="nav-item nav-parent" id="nav-option-analysis" aria-expanded="false">
-          <span class="nav-icon">📑</span> Option Analysis
-          <span class="nav-chevron">▾</span>
-        </button>
-        <ul class="nav-sublist">
-          <li>
-            <a class="nav-item nav-subitem" data-page="option-chain" href="#">
-              <span class="nav-icon">⛓️</span> Option Chain
-            </a>
-          </li>
-          <li>
-            <a class="nav-item nav-subitem" data-page="open-interest" href="#">
-              <span class="nav-icon">📉</span> Open Interest
-            </a>
-          </li>
-          <li>
-            <a class="nav-item nav-subitem" data-page="gamma-exposure" href="#">
-              <span class="nav-icon">γ</span> Gamma Exposure
-            </a>
-          </li>
-          <li>
-            <a class="nav-item nav-subitem" data-page="option-strategy" href="#">
-              <span class="nav-icon">📐</span> Option Strategy Builder
-            </a>
-          </li>
-        </ul>
-      </li>
-      <li class="nav-group-label">App</li>
-      <li>
-        <a class="nav-item" data-page="settings" href="#">
-          <span class="nav-icon">⚙️</span> Settings
-        </a>
-      </li>
-    </ul>
-  </nav>
-
   <!-- ── Page Content ── -->
   <main class="page-content">
 
     <!-- ══ Page: Home ══ -->
     <div class="page active" id="page-home">
       <section class="card chart-card">
-        <div class="chart-toolbar">
-          <div class="chart-broker-tabs" id="chart-broker-tabs">
-            <button type="button" class="cbrok-btn" data-broker="dhan">Dhan</button>
-            <button type="button" class="cbrok-btn" data-broker="5paisa">5Paisa</button>
-            <button type="button" class="cbrok-btn" data-broker="yahoo">Yahoo</button>
-            <button type="button" class="cbrok-btn" data-broker="excel">Excel</button>
-          </div>
-          <div class="chart-search-wrap">
-            <input type="text" id="stock-search" placeholder="Search symbol e.g. RELIANCE, NIFTY…" autocomplete="off" />
-            <ul class="search-dropdown hidden" id="search-dropdown"></ul>
-          </div>
-          <div class="interval-group" id="interval-group">
-            <button class="ivl-btn active" data-ivl="1">1m</button>
-            <button class="ivl-btn" data-ivl="5">5m</button>
-            <button class="ivl-btn" data-ivl="15">15m</button>
-            <button class="ivl-btn" data-ivl="25">25m</button>
-            <button class="ivl-btn" data-ivl="60">1h</button>
-            <button class="ivl-btn" data-ivl="D">1D</button>
-          </div>
-          <div class="chart-menu-wrap">
-            <button type="button" class="chart-tool-btn" id="btn-candle-type" title="Chart type">Candles ▾</button>
-            <div class="chart-pop chart-type-pop hidden" id="candle-type-pop"></div>
-          </div>
-          <button class="btn-primary" id="load-chart-btn">Load Chart</button>
-        </div>
-        <div class="chart-tools" id="chart-tools">
-          <div class="chart-tool-group" id="chart-draw-tools"></div>
-          <div class="chart-tool-group chart-tool-menus">
-            <div class="chart-menu-wrap">
-              <button type="button" class="chart-tool-btn" id="btn-ind-menu">Indicators ▾</button>
-              <div class="chart-pop ind-pop hidden" id="ind-pop"></div>
+        <div class="chart-workspace">
+          <aside class="chart-draw-rail" id="chart-draw-rail" aria-label="Drawing tools">
+            <button type="button" class="chart-draw-toggle" id="btn-draw-rail-toggle" title="Show drawing names" aria-expanded="false" aria-controls="chart-draw-tools">
+              <svg class="chart-draw-toggle-chevron" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="chart-tool-group chart-draw-stack" id="chart-draw-tools"></div>
+            <button type="button" class="chart-tool-btn chart-draw-clear" id="btn-clear-drawings" title="Remove all drawings">
+              <svg class="chart-draw-icon" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h10M6 4.5V3.2h4v1.3M5 4.5l.6 8.2h4.8L11 4.5"/></svg>
+              <span class="chart-draw-label">Clear</span>
+            </button>
+          </aside>
+          <div class="chart-main">
+            <div class="chart-toolbar">
+              <div class="chart-broker-tabs" id="chart-broker-tabs">
+                <button type="button" class="cbrok-btn" data-broker="dhan">Dhan</button>
+                <button type="button" class="cbrok-btn" data-broker="5paisa">5Paisa</button>
+                <button type="button" class="cbrok-btn" data-broker="yahoo">Yahoo</button>
+                <button type="button" class="cbrok-btn" data-broker="excel">Excel</button>
+              </div>
+              <div class="chart-search-wrap">
+                <input type="text" id="stock-search" placeholder="Search symbol e.g. RELIANCE, NIFTY…" autocomplete="off" />
+                <ul class="search-dropdown hidden" id="search-dropdown"></ul>
+              </div>
+              <div class="interval-group" id="interval-group">
+                <button class="ivl-btn active" data-ivl="1">1m</button>
+                <button class="ivl-btn" data-ivl="5">5m</button>
+                <button class="ivl-btn" data-ivl="15">15m</button>
+                <button class="ivl-btn" data-ivl="25">25m</button>
+                <button class="ivl-btn" data-ivl="60">1h</button>
+                <button class="ivl-btn" data-ivl="D">1D</button>
+              </div>
+              <button class="btn-primary" id="load-chart-btn">Load</button>
+              <div class="chart-toolbar-right">
+                <div class="chart-menu-wrap">
+                  <button type="button" class="chart-tool-btn chart-icon-btn" id="btn-candle-type" title="Chart type" aria-label="Chart type">
+                    <svg class="chart-toolbar-icon" viewBox="0 0 18 18" aria-hidden="true">
+                      <path d="M4.5 4.2v2.2M4.5 12.2v1.8M13.5 8.2v1.6M13.5 13.6v1.4" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="round"/>
+                      <rect x="3.35" y="6.4" width="2.3" height="5.8" rx="0.35" fill="currentColor"/>
+                      <path d="M9 2.6v2.4M9 12.4v3" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="round"/>
+                      <rect x="7.85" y="5" width="2.3" height="7.4" rx="0.35" fill="currentColor"/>
+                      <rect x="12.35" y="9.8" width="2.3" height="3.8" rx="0.35" fill="currentColor"/>
+                    </svg>
+                  </button>
+                  <div class="chart-pop chart-type-pop hidden" id="candle-type-pop"></div>
+                </div>
+                <div class="chart-menu-wrap">
+                  <button type="button" class="chart-tool-btn chart-icon-btn" id="btn-ind-menu" title="Indicators" aria-label="Indicators">
+                    <span class="chart-fx-mark" aria-hidden="true">
+                      <span class="chart-fx-plus">+</span>
+                      <span class="chart-fx-f">f</span>
+                      <span class="chart-fx-x">x</span>
+                    </span>
+                  </button>
+                </div>
+                <button type="button" class="chart-tool-btn chart-replay-btn" id="btn-chart-replay" title="Bar replay" aria-label="Bar replay">
+                  <svg class="chart-replay-chevrons" viewBox="0 0 12 12" aria-hidden="true">
+                    <path d="M5.6 2.2L1.8 6l3.8 3.8M10.2 2.2L6.4 6l3.8 3.8" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span>Replay</span>
+                </button>
+                <div class="chart-menu-wrap">
+                  <button type="button" class="chart-tool-btn layout-tool-btn chart-icon-btn" id="btn-split" title="Chart layout" aria-label="Chart layout">
+                    <svg class="layout-btn-icon" viewBox="0 0 16 16" aria-hidden="true">
+                      <rect x="1.2" y="1.2" width="6" height="6" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                      <rect x="8.8" y="1.2" width="6" height="6" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                      <rect x="1.2" y="8.8" width="6" height="6" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                      <rect x="8.8" y="8.8" width="6" height="6" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                    </svg>
+                  </button>
+                  <div class="chart-pop layout-pop hidden" id="split-pop"></div>
+                </div>
+              </div>
             </div>
-            <div class="chart-menu-wrap">
-              <button type="button" class="chart-tool-btn" id="btn-custom-menu">Custom ▾</button>
-              <div class="chart-pop hidden" id="custom-pop"></div>
+            <div id="chart-meta" class="chart-meta hidden">
+              <span id="chart-interval-label" class="chart-interval-label"></span>
+              <span id="chart-live-quote" class="chart-live-quote"></span>
+              <span id="chart-ohlc"></span>
+              <span id="live-badge" class="live-badge" style="display:none" aria-hidden="true"></span>
+              <span id="replay-badge" class="replay-badge" style="display:none" aria-hidden="true"></span>
             </div>
-            <button type="button" class="chart-tool-btn" id="btn-chart-replay" title="Bar replay">Replay</button>
-            <button type="button" class="chart-tool-btn" id="btn-clear-drawings" title="Remove all drawings">Clear drawings</button>
+            <div class="chart-stage" id="chart-stage">
+              <div class="chart-slot active" data-slot="0">
+                <div class="chart-slot-body">
+                  <div class="chart-slot-ticker" data-slot-ticker="0"></div>
+                  <div class="chart-slot-hud">
+                    <div class="chart-slot-title-row">
+                      <span class="chart-slot-title" data-slot-title="0"></span>
+                      <span class="chart-slot-meta-host" data-slot-meta="0"></span>
+                    </div>
+                    <div id="chart-ind-legend" class="chart-ind-legend hidden"></div>
+                  </div>
+                  <div id="chart-container"></div>
+                </div>
+              </div>
+              <div id="chart-replay-hint" class="chart-replay-hint hidden">Click a candle to choose the replay starting point</div>
+              <div class="chart-nav" id="chart-nav" aria-hidden="true">
+                <button type="button" class="chart-nav-btn" data-nav="zoom-out" title="Zoom out">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                </button>
+                <button type="button" class="chart-nav-btn" data-nav="zoom-in" title="Zoom in">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                </button>
+                <button type="button" class="chart-nav-btn" data-nav="pan-left" title="Scroll left">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8 10 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button type="button" class="chart-nav-btn" data-nav="pan-right" title="Scroll right">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button type="button" class="chart-nav-btn" data-nav="reset" title="Reset view">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.4-3.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M13 3.2v3.3h-3.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
+              <div id="chart-message" class="chart-message">Select a stock and click Load Chart</div>
+            </div>
+            <div id="chart-replay-bar" class="chart-replay-bar hidden" aria-hidden="true">
+              <button type="button" class="chart-replay-btn" id="replay-pick" title="Select starting bar">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.5h10v9H3zM8 3.5v9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2l2.4 1.3L8 9.8z" fill="currentColor"/></svg>
+              </button>
+              <button type="button" class="chart-replay-btn" id="replay-back" title="Previous bar">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 4L6 8l4.5 4M5.2 4v8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <button type="button" class="chart-replay-btn chart-replay-play" id="replay-play" title="Play">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l8-4.5z" fill="currentColor"/></svg>
+              </button>
+              <button type="button" class="chart-replay-btn" id="replay-fwd" title="Next bar">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 4L10 8 5.5 12M10.8 4v8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div class="chart-menu-wrap">
+                <button type="button" class="chart-replay-speed" id="replay-speed">1x ▾</button>
+                <div class="chart-pop hidden" id="replay-speed-pop"></div>
+              </div>
+              <span class="chart-replay-clock" id="replay-clock"></span>
+              <span class="chart-replay-pos" id="replay-pos"></span>
+              <button type="button" class="chart-replay-exit" id="replay-exit">Exit</button>
+            </div>
           </div>
-        </div>
-        <div id="chart-meta" class="chart-meta hidden">
-          <span id="chart-symbol-label"></span>
-          <span id="chart-live-quote" class="chart-live-quote"></span>
-          <span id="chart-ohlc"></span>
-          <span id="live-badge" class="live-badge" style="display:none"><span id="live-dot" class="live-dot">●</span> LIVE</span>
-          <span id="replay-badge" class="replay-badge" style="display:none">REPLAY</span>
-        </div>
-        <div class="chart-stage">
-          <div id="chart-ind-legend" class="chart-ind-legend hidden"></div>
-          <div id="chart-container"></div>
-          <div id="chart-replay-hint" class="chart-replay-hint hidden">Click a candle to choose the replay starting point</div>
-          <div class="chart-nav" id="chart-nav" aria-hidden="true">
-            <button type="button" class="chart-nav-btn" data-nav="zoom-out" title="Zoom out">
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-            </button>
-            <button type="button" class="chart-nav-btn" data-nav="zoom-in" title="Zoom in">
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-            </button>
-            <button type="button" class="chart-nav-btn" data-nav="pan-left" title="Scroll left">
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8 10 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-            <button type="button" class="chart-nav-btn" data-nav="pan-right" title="Scroll right">
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-            <button type="button" class="chart-nav-btn" data-nav="reset" title="Reset view">
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.4-3.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M13 3.2v3.3h-3.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-          </div>
-          <div id="chart-message" class="chart-message">Select a stock and click Load Chart</div>
-        </div>
-        <div id="chart-replay-bar" class="chart-replay-bar hidden" aria-hidden="true">
-          <button type="button" class="chart-replay-btn" id="replay-pick" title="Select starting bar">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.5h10v9H3zM8 3.5v9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2l2.4 1.3L8 9.8z" fill="currentColor"/></svg>
-          </button>
-          <button type="button" class="chart-replay-btn" id="replay-back" title="Previous bar">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 4L6 8l4.5 4M5.2 4v8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <button type="button" class="chart-replay-btn chart-replay-play" id="replay-play" title="Play">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l8-4.5z" fill="currentColor"/></svg>
-          </button>
-          <button type="button" class="chart-replay-btn" id="replay-fwd" title="Next bar">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 4L10 8 5.5 12M10.8 4v8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <div class="chart-menu-wrap">
-            <button type="button" class="chart-replay-speed" id="replay-speed">1x ▾</button>
-            <div class="chart-pop hidden" id="replay-speed-pop"></div>
-          </div>
-          <span class="chart-replay-clock" id="replay-clock"></span>
-          <span class="chart-replay-pos" id="replay-pos"></span>
-          <button type="button" class="chart-replay-exit" id="replay-exit">Exit</button>
         </div>
       </section>
+
+      <div class="chart-modal-backdrop hidden" id="ind-picker-modal">
+        <div class="ind-picker" id="ind-pop" role="dialog" aria-modal="true" aria-labelledby="ind-picker-title"></div>
+      </div>
 
       <div class="chart-modal-backdrop hidden" id="custom-ind-modal">
         <div class="chart-modal">
@@ -1768,10 +1807,10 @@ window._brokerEnabled = {
 </script>
 <script src="/static/js/klinecharts.min.js"></script>
 <script src="/static/js/socket.io.min.js"></script>
-<script src="/static/js/home_chart.js?v=xl2"></script>
-<script src="/static/js/main.js?v=xl1"></script>
+<script src="/static/js/home_chart.js?v=xl13"></script>
+<script src="/static/js/main.js?v=xl3"></script>
 <script src="/static/js/correlation_density.js"></script>
-<script src="/static/js/pair_detail.js?v=pd-calc4"></script>
+<script src="/static/js/pair_detail.js?v=pd-calc5"></script>
 <script src="/static/js/option_chain.js"></script>
 <script src="/static/js/open_interest.js"></script>
 <script src="/static/js/gamma_exposure.js"></script>

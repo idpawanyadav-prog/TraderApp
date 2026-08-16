@@ -758,6 +758,7 @@
     document.querySelectorAll(".nav-item").forEach(function (l) {
       l.classList.toggle("active", l.dataset.page === "correlation-density");
     });
+    if (typeof syncOptionAnalysisNav === "function") syncOptionAnalysisNav("correlation-density");
   });
 
   // Redraw on resize / DPI / sidebar / theme — match the live box size

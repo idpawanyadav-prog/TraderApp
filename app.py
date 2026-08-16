@@ -706,12 +706,26 @@ def _market_allowed(inst, markets=None):
     )
 
 def load_app_settings() -> dict:
-    if not os.path.exists(SETTINGS_FILE):
+    s = None
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                raw = f.read().strip()
+            if raw:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    s = parsed
+        except (json.JSONDecodeError, OSError, TypeError, ValueError):
+            s = None
+    if s is None:
         s = dict(DEFAULT_APP_SETTINGS)
         s["api_key"] = str(uuid.uuid4())
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(s, f, indent=2)
+        except OSError:
+            pass
         return s
-    with open(SETTINGS_FILE, "r") as f:
-        s = json.load(f)
     for k, v in DEFAULT_APP_SETTINGS.items():
         if k not in s:
             s[k] = v
@@ -724,8 +738,12 @@ def load_app_settings() -> dict:
 def save_app_settings(data: dict) -> None:
     existing = load_app_settings()
     existing.update(data)
-    with open(SETTINGS_FILE, "w") as f:
+    tmp = SETTINGS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(existing, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, SETTINGS_FILE)
 
 
 # ---------- Public API helpers ----------
@@ -1890,17 +1908,20 @@ def chart_drawings():
     if request.method == "GET":
         key = str(request.args.get("key") or "").strip()
         if key:
-            return jsonify({"success": True, "key": key, "overlays": drawings.get(key) or []})
+            found = key in drawings
+            return jsonify({
+                "success": True,
+                "key": key,
+                "found": found,
+                "overlays": drawings.get(key) or [],
+            })
         return jsonify({"success": True, "drawings": drawings})
     body = request.get_json(force=True) or {}
     key = str(body.get("key") or "").strip()[:160]
     if not key:
         return jsonify({"success": False, "message": "key required"}), 400
     overlays = _sanitize_chart_overlays(body.get("overlays"))
-    if overlays:
-        drawings[key] = overlays
-    else:
-        drawings.pop(key, None)
+    drawings[key] = overlays
     s["chart_drawings"] = drawings
     save_app_settings(s)
     return jsonify({"success": True, "count": len(overlays)})

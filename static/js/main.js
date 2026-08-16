@@ -25,22 +25,16 @@ window._getChartTheme = function () {
   applyTheme(localStorage.getItem("app_theme") === "light" ? "light" : "dark");
 })();
 
-/* ── Sidebar Toggle ── */
-document.getElementById("sidebar-toggle").addEventListener("click", () => {
-  document.getElementById("sidebar").classList.toggle("collapsed");
-  if (typeof window._chartResize === "function") window._chartResize();
-  window.dispatchEvent(new Event("resize"));
-});
-
 /* ── Page Navigation ── */
 function syncOptionAnalysisNav(pageId) {
   var accordion = document.querySelector(".nav-accordion");
-  var parent = document.getElementById("nav-option-analysis");
+  var parent = document.getElementById("nav-analysis-btn");
   if (!accordion || !parent) return;
-  var optionPages = ["option-chain", "open-interest", "gamma-exposure", "option-strategy"];
-  var isOption = optionPages.indexOf(pageId) !== -1;
-  accordion.classList.toggle("open", isOption);
-  parent.setAttribute("aria-expanded", isOption ? "true" : "false");
+  var analysisPages = ["correlation-density", "option-chain", "open-interest", "gamma-exposure", "option-strategy"];
+  var isAnalysis = analysisPages.indexOf(pageId) !== -1;
+  accordion.classList.toggle("has-active", isAnalysis);
+  accordion.classList.remove("open");
+  parent.setAttribute("aria-expanded", "false");
 }
 
 document.querySelectorAll(".nav-item[data-page]").forEach(link => {
@@ -68,12 +62,18 @@ document.querySelectorAll(".nav-item[data-page]").forEach(link => {
 });
 
 (function () {
-  var parent = document.getElementById("nav-option-analysis");
+  var parent = document.getElementById("nav-analysis-btn");
   var accordion = document.querySelector(".nav-accordion");
   if (!parent || !accordion) return;
   parent.addEventListener("click", function () {
     var open = accordion.classList.toggle("open");
     parent.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  document.addEventListener("click", function (e) {
+    if (!accordion.contains(e.target)) {
+      accordion.classList.remove("open");
+      parent.setAttribute("aria-expanded", "false");
+    }
   });
 })();
 
@@ -869,8 +869,8 @@ document.addEventListener('DOMContentLoaded', function() {
   function applyOptionAnalysisVisibility() {
     var en = window._brokerEnabled || {};
     var yahooOnly = !en.dhan && !en['5paisa'] && (!!en.yahoo || !!en.excel);
-    var acc = document.querySelector('.nav-accordion');
-    if (acc) acc.classList.toggle('nav-disabled', yahooOnly);
+    var col = document.getElementById('nav-option-col');
+    if (col) col.classList.toggle('nav-disabled', yahooOnly);
     if (yahooOnly) {
       var optionPages = { 'option-chain': 1, 'open-interest': 1, 'gamma-exposure': 1, 'option-strategy': 1 };
       var active = document.querySelector('.page.active');
