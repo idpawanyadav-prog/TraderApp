@@ -8,10 +8,28 @@
 # Web UI + live chart updates
 Flask>=3.1.3,<4
 Flask-SocketIO>=5.6.1,<6
+# These are pulled by Flask-SocketIO but pip --target=libs often skips them
+# when the host Python (e.g. Anaconda) already has a subset. List them so
+# a GitHub zip + install_libs.bat has a complete ./libs.
+python-socketio>=5.12.0,<6
+python-engineio>=4.11.0,<5
+simple-websocket>=1.1.0,<2
+wsproto>=1.2.0,<2
+h11>=0.14.0,<1
+bidict>=0.23.0,<1
+Werkzeug>=3.1.0,<4
+Jinja2>=3.1.2,<4
+itsdangerous>=2.2.0,<3
+click>=8.1.3,<9
+MarkupSafe>=2.1.1,<4
+blinker>=1.9.0,<2
 
 # HTTP (brokers) — urllib3 is imported in broker/fivepaisa.py
 requests>=2.32.0,<3
 urllib3>=2.2.0,<3
+certifi>=2024.0.0
+charset-normalizer>=3.0.0,<4
+idna>=3.7,<4
 
 # WebSocket client (5Paisa option Greeks in broker/fivepaisa.py)
 websocket-client>=1.8.0,<2

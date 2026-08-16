@@ -16,25 +16,27 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Kill any existing python instance to free port 5000
-echo [INFO] Stopping any existing Python server...
-taskkill /IM python.exe /F >nul 2>&1
+:: Free port 5000 only — do not kill every Python process on the PC
+echo [INFO] Stopping any TraderApp server on port 5000...
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":5000" ^| findstr "LISTENING"') do (
+    taskkill /PID %%P /F >nul 2>&1
+)
 
 echo [INFO] Using %PYTHON%
 "%PYTHON%" -V
 echo [INFO] Starting TraderApp on http://127.0.0.1:5000/
-echo [INFO] Press Ctrl+C to stop the server.
+echo [INFO] Press Ctrl+C in the TraderApp window to stop the server.
 echo.
 
-:: Run the app in a new window and open the browser automatically
-start "TraderApp" cmd /c ""%PYTHON%" app.py"
+:: cmd /k keeps the window open if app.py crashes, so the error is visible
+start "TraderApp" cmd /k ""%PYTHON%" app.py"
 
-:: Wait a moment for the server to initialize before opening the browser
-ping 127.0.0.1 -n 4 >nul
+:: Wait for the server to bind before opening the browser
+ping 127.0.0.1 -n 6 >nul
 start http://127.0.0.1:5000/
 
 echo.
-echo [INFO] Server started in a new terminal window.
-echo [INFO] Opening http://127.0.0.1:5000/ in your browser.
-echo [INFO] Press Ctrl+C in the server window to stop it.
+echo [INFO] Server is starting in a separate "TraderApp" window.
+echo [INFO] If the browser is blank, read that window for the error.
+echo [INFO] Missing packages: run install_libs.bat, then this file again.
 exit /b 0
