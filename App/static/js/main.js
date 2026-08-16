@@ -211,7 +211,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (toggle && body) {
       toggle.addEventListener("click", function () {
         body.classList.toggle("hidden");
-        if (chevron) chevron.classList.toggle("open", !body.classList.contains("hidden"));
+        var open = !body.classList.contains("hidden");
+        if (chevron) chevron.classList.toggle("open", open);
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
       });
     }
     wrap.addEventListener("click", function (e) {
@@ -1017,7 +1019,7 @@ document.addEventListener('DOMContentLoaded', function() {
           { name: 'from',     req: false, note: 'YYYY-MM-DD (default 4 days ago)' },
           { name: 'to',       req: false, note: 'YYYY-MM-DD (default today)' },
           { name: 'v',        req: false, note: '1 = JSON (default) | 2 = pipe-delimited' },
-          { name: 'TA',       req: false, note: 'true = append configured indicators' },
+          { name: 'TA',       req: false, note: 'true = append saved Settings indicators (toggle not required)' },
           { name: 'fields',   req: false, note: 'Comma-separated: D,O,H,L,C,V,T' },
         ],
         example: '/public/api/5paisa/historical?symbol=RELIANCE&interval=15&from=2026-07-01&to=2026-07-13&TA=true',
@@ -1044,27 +1046,39 @@ document.addEventListener('DOMContentLoaded', function() {
           { name: 'interval',   req: false, note: '1 | 5 | 15 | 25 | 60 | D' },
           { name: 'from_date',  req: false, note: 'YYYY-MM-DD' },
           { name: 'to_date',    req: false, note: 'YYYY-MM-DD' },
+          { name: 'TA',         req: false, note: 'true = append saved Settings indicators' },
         ],
-        example: '{"scrip_code":500325,"exch":"N","exch_type":"C","interval":"15"}',
+        example: '{"scrip_code":500325,"exch":"N","exch_type":"C","interval":"15","TA":true}',
         isPost: true,
       },
     ];
 
-    list.innerHTML = endpoints.map(function(ep, i) {
-      var exUrl = ep.isPost
-        ? '<div class="ep-example-label">Request body:</div><pre class="ep-example-body">' + ep.example + '</pre>'
-        : '<div class="ep-example-wrap">'
-            + '<span class="ep-example-label">Example:</span>'
-            + '<code class="ep-example-url">' + base + ep.example + '</code>'
-            + '<button class="ep-copy-btn" data-url="' + (base + ep.example).replace(/"/g, '&quot;') + '" title="Copy URL">\u2398</button>'
-          + '</div>';
+    function _formatApiTestBody(text) {
+      try { return JSON.stringify(JSON.parse(text), null, 2); }
+      catch (e) { return text || ''; }
+    }
+    function _truncateApiTest(s, max) {
+      max = max || 8000;
+      if (!s || s.length <= max) return s || '(empty body)';
+      return s.slice(0, max) + '\n\n… truncated (' + s.length + ' chars)';
+    }
 
+    list.innerHTML = endpoints.map(function(ep) {
       var paramsHtml = ep.params.length ? '<div class="ep-params">' + ep.params.map(function(p) {
         return '<span class="ep-param' + (p.req ? ' req' : '') + '">'
           + '<code>' + p.name + '</code>'
           + '<span class="ep-param-note">' + (p.req ? '<b>required</b>' : 'optional') + ' \u2014 ' + p.note + '</span>'
           + '</span>';
       }).join('') + '</div>' : '';
+
+      var requestHtml = ep.isPost
+        ? '<div class="ep-example-label">Request body (JSON)</div>'
+            + '<textarea class="ep-test-body" rows="4" spellcheck="false"></textarea>'
+        : '<div class="ep-example-wrap">'
+            + '<span class="ep-example-label">Request URL</span>'
+            + '<input class="ep-test-url ep-example-url" type="text" spellcheck="false" />'
+            + '<button type="button" class="ep-copy-btn" title="Copy URL">\u2398</button>'
+          + '</div>';
 
       return '<div class="ep-card">'
         + '<div class="ep-card-head">'
@@ -1073,18 +1087,72 @@ document.addEventListener('DOMContentLoaded', function() {
           + '<span class="ep-desc">' + ep.desc + '</span>'
         + '</div>'
         + paramsHtml
-        + '<div class="ep-example">' + exUrl + '</div>'
+        + '<div class="ep-example">' + requestHtml + '</div>'
+        + '<div class="ep-test">'
+          + '<div class="ep-test-row">'
+            + '<button type="button" class="btn-secondary ep-test-btn">Test connection</button>'
+            + '<span class="ep-test-meta"></span>'
+          + '</div>'
+          + '<pre class="ep-test-out hidden"></pre>'
+        + '</div>'
         + '</div>';
     }).join('');
 
-    list.querySelectorAll('.ep-copy-btn').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        if (navigator.clipboard) {
-          navigator.clipboard.writeText(btn.dataset.url).then(function() {
-            btn.textContent = '\u2713';
-            setTimeout(function() { btn.innerHTML = '\u2398'; }, 1500);
+    Array.prototype.forEach.call(list.children, function(card, i) {
+      var ep = endpoints[i];
+      var urlInput = card.querySelector('.ep-test-url');
+      var bodyInput = card.querySelector('.ep-test-body');
+      var copyBtn = card.querySelector('.ep-copy-btn');
+      var testBtn = card.querySelector('.ep-test-btn');
+      var meta = card.querySelector('.ep-test-meta');
+      var out = card.querySelector('.ep-test-out');
+      if (urlInput) urlInput.value = base + ep.example;
+      if (bodyInput) bodyInput.value = ep.example;
+      if (copyBtn) {
+        copyBtn.addEventListener('click', function() {
+          var val = urlInput ? urlInput.value : (base + ep.example);
+          if (!navigator.clipboard) return;
+          navigator.clipboard.writeText(val).then(function() {
+            copyBtn.textContent = '\u2713';
+            setTimeout(function() { copyBtn.innerHTML = '\u2398'; }, 1500);
           });
+        });
+      }
+      if (!testBtn) return;
+      testBtn.addEventListener('click', async function() {
+        testBtn.disabled = true;
+        testBtn.textContent = 'Testing\u2026';
+        meta.textContent = '';
+        meta.className = 'ep-test-meta';
+        out.classList.remove('hidden', 'ok', 'err');
+        out.textContent = '';
+        var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+        try {
+          var opts = { method: ep.method, credentials: 'same-origin' };
+          var url;
+          if (ep.isPost) {
+            url = base + ep.path;
+            opts.headers = { 'Content-Type': 'application/json' };
+            opts.body = bodyInput ? bodyInput.value : ep.example;
+          } else {
+            url = (urlInput && urlInput.value.trim()) || (base + ep.example);
+          }
+          var res = await fetch(url, opts);
+          var elapsed = Math.round(((window.performance && performance.now) ? performance.now() : Date.now()) - t0);
+          var text = await res.text();
+          var ok = res.ok;
+          meta.textContent = ep.method + ' ' + res.status + ' ' + (res.statusText || '') + ' \u00b7 ' + elapsed + ' ms';
+          meta.className = 'ep-test-meta ' + (ok ? 'ok' : 'err');
+          out.textContent = _truncateApiTest(_formatApiTestBody(text));
+          out.classList.add(ok ? 'ok' : 'err');
+        } catch (e) {
+          meta.textContent = ep.method + ' failed';
+          meta.className = 'ep-test-meta err';
+          out.textContent = String(e && e.message ? e.message : e);
+          out.classList.add('err');
         }
+        testBtn.disabled = false;
+        testBtn.textContent = 'Test connection';
       });
     });
 
@@ -1095,8 +1163,8 @@ document.addEventListener('DOMContentLoaded', function() {
         var panel = document.getElementById('ep-panel');
         if (!panel) return;
         var isOpen = !panel.classList.contains('hidden');
-        if (isOpen) { panel.classList.add('hidden'); epBtn.classList.remove('open'); }
-        else         { panel.classList.remove('hidden'); epBtn.classList.add('open'); }
+        if (isOpen) { panel.classList.add('hidden'); epBtn.classList.remove('open'); epBtn.setAttribute('aria-expanded', 'false'); }
+        else         { panel.classList.remove('hidden'); epBtn.classList.add('open'); epBtn.setAttribute('aria-expanded', 'true'); }
       });
       var epHeader = document.getElementById('ep-section-header');
       if (epHeader) epHeader.addEventListener('click', function(e) {
@@ -1172,7 +1240,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ── Technical Indicators ───────────────────────────────────────────────────
 
-  var _taCatalog   = {};   // loaded from /public/api/ta/catalog
+  var _taCatalog   = {};   // loaded from /api/ta/catalog
   var _taCustomCatalog = []; // line-chart custom indicators
   var _taIndicators = [];  // current list of configured indicators
   var _TA_SMOOTH_MODELS = [
@@ -1191,7 +1259,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   async function loadTaSettings() {
     try {
-      var r = await fetch('/public/api/ta/catalog');
+      var r = await fetch('/api/ta/catalog');
       var d = await r.json();
       if (d.success) {
         _taCatalog = d.indicators || {};
@@ -1516,8 +1584,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var panel = document.getElementById('ta-panel');
     var btn   = document.getElementById('ta-collapse-btn');
     if (!panel || !btn) return;
-    if (open) { panel.classList.remove('hidden'); btn.classList.add('open'); }
-    else       { panel.classList.add('hidden');    btn.classList.remove('open'); }
+    if (open) { panel.classList.remove('hidden'); btn.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); }
+    else       { panel.classList.add('hidden');    btn.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
   }
 
   var taEnableChk = document.getElementById('setting-enable-ta');
@@ -1529,8 +1597,9 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 
-  var taHeader = document.getElementById('ta-collapse-btn');
-  if (taHeader) taHeader.addEventListener('click', function() {
+  var taHeader = document.getElementById('ta-section-header');
+  if (taHeader) taHeader.addEventListener('click', function(e) {
+    if (e.target.closest('.toggle-switch')) return;
     var panel = document.getElementById('ta-panel');
     if (panel) _setTaPanel(panel.classList.contains('hidden'));
   });

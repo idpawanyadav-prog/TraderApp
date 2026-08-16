@@ -12,6 +12,8 @@
   var LS_SLOTMETA = "traderapp.chart.slotMeta";
   var LS_SYNC = "traderapp.chart.layoutSync";
   var LS_DRAW_RAIL = "traderapp.chart.drawRailExpanded";
+  var LS_WATCHLIST = "traderapp.chart.watchlist";
+  var LS_WATCHLIST_OPEN = "traderapp.chart.watchlistOpen";
 
   var chart = null;
   var _socket = null;
@@ -189,7 +191,7 @@
   };
 
   var OVERLAY_INDS = { MA: 1, EMA: 1, SMA: 1, BBI: 1, BOLL: 1, SAR: 1, AVP: 1, VWAP: 1, SuperTrend: 1, VOL: 1 };
-  var LOCAL_INDS = { VWAP: 1, SuperTrend: 1, MA: 1, EMA: 1, SMA: 1, BOLL: 1, BBI: 1 };
+  var LOCAL_INDS = { VWAP: 1, SuperTrend: 1, MA: 1, EMA: 1, SMA: 1, BOLL: 1, BBI: 1, VOL: 1 };
   var PANE_INDS = ["MACD", "KDJ", "RSI", "WR", "CCI", "DMI", "OBV", "ROC", "MTM", "AO", "BIAS", "TRIX", "DMA", "PSY", "VR", "EMV", "CR", "BRAR", "PVT"];
   var IND_SPECS = {
     MA:   { overlay: true,  csv: true, params: [{ label: "Lengths (candles)", def: "20" }] },
@@ -547,6 +549,7 @@
       instrument: null,
       interval: "1",
       rawBars: [],
+      barsKey: "",
       prevClose: null,
       lastBarTime: null,
       liveSub: false,
@@ -687,6 +690,16 @@
     if (!s || !s.instrument) return "";
     return s.instrument.trading_symbol || "";
   }
+  function _normSym(s) {
+    return String(s || "").trim().toUpperCase();
+  }
+  function instrumentInputLabel(inst) {
+    if (!inst) return "";
+    var sym = inst.trading_symbol || "";
+    var name = inst.name || "";
+    if (!name || _normSym(name) === _normSym(sym)) return sym;
+    return sym + " \u2014 " + name;
+  }
   function setActiveSlot(i) {
     if (i < 0 || i >= chartSlots.length || i >= splitCount) return;
     var switching = i !== activeSlot;
@@ -729,9 +742,7 @@
     var s = chartSlots[activeSlot];
     if (!s) return;
     if (searchInput) {
-      searchInput.value = s.instrument
-        ? (s.instrument.trading_symbol + " \u2014 " + (s.instrument.name || ""))
-        : "";
+      searchInput.value = s.instrument ? instrumentInputLabel(s.instrument) : "";
     }
     renderIntervalButtons();
     if (symbolLabel) symbolLabel.textContent = "";
@@ -886,7 +897,7 @@
         s.intervalEl.textContent = s.instrument ? intervalLabel(s.interval || "") : "";
       }
       var bars = s.rawBars || [];
-      if (!s.instrument || !bars.length) {
+      if (!s.instrument || !slotQuoteReady(s)) {
         if (s.quoteEl) s.quoteEl.innerHTML = "";
         if (s.ohlcSlotEl) s.ohlcSlotEl.innerHTML = "";
         continue;
@@ -896,6 +907,7 @@
       setSlotQuote(s, last.close, prev);
       setSlotOhlc(s, last);
     }
+    if (typeof syncWatchlistQuotesFromSlots === "function") syncWatchlistQuotesFromSlots();
   }
 
   function updateSlotIndCounts() {
@@ -1152,6 +1164,68 @@
     }
     if (activeSlot >= splitCount) activeSlot = 0;
     setActiveSlot(activeSlot);
+    requestAnimationFrame(function () {
+      paintVisibleSlotCharts(false);
+      if (hydrateSlotCharts()) refreshVisibleSlots();
+    });
+  }
+
+  function slotPaintedCount(s) {
+    if (!s || !s.chart) return 0;
+    try {
+      var list = s.chart.getDataList && s.chart.getDataList();
+      return list ? list.length : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  function paintVisibleSlotCharts(fitBlank) {
+    var i;
+    for (i = 0; i < splitCount; i++) {
+      var s = chartSlots[i];
+      if (!s || !s.chart) continue;
+      try { s.chart.resize(); } catch (_) {}
+      if (!fitBlank) continue;
+      var vis = 0;
+      var len = slotPaintedCount(s);
+      try {
+        var range = s.chart.getVisibleRange && s.chart.getVisibleRange();
+        if (range && range.to != null && range.from != null) vis = Math.max(0, Number(range.to) - Number(range.from));
+      } catch (_) {}
+      if (len > 8 && vis < 3) {
+        withSlot(i, function () { fitLoadedChart(); });
+      }
+    }
+  }
+
+  /* Re-apply bars already in memory onto empty panes (layout change / 0-size init). */
+  function hydrateSlotCharts() {
+    var needFetch = false;
+    var i;
+    for (i = 0; i < splitCount; i++) {
+      (function (idx) {
+        var s = chartSlots[idx];
+        if (!s || !s.chart) return;
+        if (slotPaintedCount(s) > 0) return;
+        if (s.rawBars && s.rawBars.length) {
+          withSlot(idx, function () {
+            var slot = chartSlots[idx];
+            applyChartContainerTheme(slot.container);
+            try { slot.chart.setStyles(klineStyles()); } catch (_) {}
+            applyChartData(displaySeries(visibleRawBars()), slot.histMore !== false);
+            restoreIndicators();
+            try { slot.chart.resize(); } catch (_) {}
+            fitLoadedChart();
+            if (chartHasSize(slot.container)) slot.needsFit = false;
+            else slot.needsFit = true;
+          });
+        } else if (s.instrument) {
+          needFetch = true;
+        }
+      })(i);
+    }
+    return needFetch;
   }
 
   function ensureSlotDOM(n) {
@@ -1259,6 +1333,7 @@
     ensureSlotCharts();
     if (window._chartApplyTheme) window._chartApplyTheme();
     if (layoutSync.symbol || layoutSync.interval) syncVisibleSlotsWithLayout();
+    else if (hydrateSlotCharts()) refreshVisibleSlots();
     renderSplitPop();
   }
 
@@ -1384,7 +1459,9 @@
   function copySeriesToSlot(srcIdx, dstIdx) {
     var src = chartSlots[srcIdx];
     var dst = chartSlots[dstIdx];
-    if (!src || !dst || !dst.chart) return;
+    if (!src || !dst) return;
+    dst.instrument = src.instrument;
+    dst.interval = src.interval;
     dst.rawBars = (src.rawBars || []).map(function (b) {
       return {
         timestamp: b.timestamp, open: b.open, high: b.high, low: b.low, close: b.close,
@@ -1395,12 +1472,16 @@
     dst.lastBarTime = src.lastBarTime;
     dst.histMore = src.histMore;
     dst.histLoading = false;
+    dst.barsKey = src.barsKey;
     dst.excelOverlayData = src.excelOverlayData;
+    if (!dst.chart) return;
     _useSlot(dstIdx);
     applyChartContainerTheme(dst.container);
     applyChartData(displaySeries(visibleRawBars()), dst.histMore !== false);
+    restoreIndicators();
     try { dst.chart.setStyles(klineStyles()); } catch (_) {}
     try { dst.chart.resize(); } catch (_) {}
+    fitLoadedChart();
     setSlotOhlc(dst, dst.rawBars.length ? dst.rawBars[dst.rawBars.length - 1] : null);
   }
 
@@ -1440,7 +1521,10 @@
   }
 
   function loadSyncedSlots(exceptIdx, skipMap) {
-    if (_layoutSyncBusy) return;
+    if (_layoutSyncBusy) {
+      _refreshSlotsQueued = true;
+      return;
+    }
     if (!layoutSync.symbol && !layoutSync.interval) return;
     var jobs = [];
     var i;
@@ -1476,16 +1560,25 @@
       else if (chartSlots[activeSlot]) _useSlot(activeSlot);
       updateSlotTickers();
       schedulePyRefresh(true);
+      paintVisibleSlotCharts(true);
     }).finally(function () {
       _layoutSyncBusy = false;
+      if (_refreshSlotsQueued) {
+        _refreshSlotsQueued = false;
+        setTimeout(refreshVisibleSlots, 120);
+      }
     });
   }
 
   /* Reload every on-screen slot that already has an instrument (skip empties).
      Network fetches run in parallel; chart applies stay ordered. */
   var _homeShowRefreshing = false;
+  var _refreshSlotsQueued = false;
   function refreshVisibleSlots() {
-    if (_homeShowRefreshing || _layoutSyncBusy) return;
+    if (_homeShowRefreshing || _layoutSyncBusy) {
+      _refreshSlotsQueued = true;
+      return;
+    }
     var jobs = [];
     var i;
     for (i = 0; i < splitCount; i++) {
@@ -1494,6 +1587,7 @@
     }
     if (!jobs.length) return;
     _homeShowRefreshing = true;
+    _refreshSlotsQueued = false;
     var origin = activeSlot;
     Promise.all(jobs.map(function (idx) {
       var s = chartSlots[idx];
@@ -1503,13 +1597,18 @@
       var yrange = clampYahooRange(fromDate, toDate, iv);
       return fetchCandlesFor(s.instrument, iv, yrange.fromDate, toDate)
         .then(function (pack) { return { idx: idx, pack: pack }; })
-        .catch(function () { return null; });
+        .catch(function () { return { idx: idx, pack: null }; });
     })).then(function (results) {
       var chain = Promise.resolve();
       results.forEach(function (r) {
-        if (!r || !r.pack) return;
+        if (!r || !r.pack || !(r.pack.candles && r.pack.candles.length)) return;
         chain = chain.then(function () {
-          return loadChartData(true, { slot: r.idx, prefetched: r.pack });
+          var painted = slotPaintedCount(chartSlots[r.idx]);
+          return loadChartData(true, {
+            slot: r.idx,
+            prefetched: r.pack,
+            syncLoad: painted < 2
+          });
         });
       });
       return chain;
@@ -1518,8 +1617,13 @@
       else if (chartSlots[activeSlot]) _useSlot(activeSlot);
       updateSlotTickers();
       syncToolbarToSlot();
+      paintVisibleSlotCharts(true);
     }).finally(function () {
       _homeShowRefreshing = false;
+      if (_refreshSlotsQueued) {
+        _refreshSlotsQueued = false;
+        setTimeout(refreshVisibleSlots, 120);
+      }
     });
   }
 
@@ -1666,6 +1770,16 @@
     var sym = String(inst.trading_symbol || "").toUpperCase();
     var exch = String(inst.exch || inst.exchange_segment || "").toUpperCase();
     return { id: id, sym: sym, exch: exch };
+  }
+  function instrumentQuoteKey(inst) {
+    var parts = instrumentKeyParts(inst);
+    if (!parts) return "";
+    return [activeBroker, parts.exch, parts.sym, parts.id].join("|");
+  }
+  function slotQuoteReady(s) {
+    if (!s || !s.instrument || !s.rawBars || !s.rawBars.length) return false;
+    var k = instrumentQuoteKey(s.instrument);
+    return !!(k && s.barsKey && s.barsKey === k);
   }
   function drawingStoreKey(inst, iv) {
     var parts = instrumentKeyParts(inst);
@@ -1978,7 +2092,7 @@
 
   function waitForChartSize(el, timeoutMs) {
     el = el || chartContainer;
-    timeoutMs = timeoutMs == null ? 1500 : timeoutMs;
+    timeoutMs = timeoutMs == null ? 2200 : timeoutMs;
     return new Promise(function (resolve) {
       if (chartHasSize(el)) {
         resolve(true);
@@ -2028,14 +2142,21 @@
     }
     var moreFlag = more !== false;
     var done = typeof after === "function" ? after : null;
+    var finished = false;
+    function finish() {
+      if (finished) return;
+      finished = true;
+      if (done) done();
+    }
     try {
-      chart.applyNewData(bars || [], moreFlag, function () {
-        if (done) done();
-      });
+      chart.applyNewData(bars || [], moreFlag, finish);
     } catch (_) {
       try { chart.applyNewData(bars || [], moreFlag); } catch (__) {}
-      if (done) requestAnimationFrame(done);
+      requestAnimationFrame(finish);
+      return;
     }
+    /* applyNewData's promise can stall on a 0-size pane; never block later tiles. */
+    setTimeout(finish, 900);
   }
 
   function upsertRawBar(bar) {
@@ -2074,13 +2195,16 @@
   }
 
   function prevCloseFromBars(bars) {
-    if (!bars || !bars.length) return null;
-    if (bars.length === 1) return bars[0].open;
+    if (!bars || bars.length < 2) return null;
     var lastDay = dateIST(bars[bars.length - 1].timestamp);
+    if (!lastDay) return null;
     for (var i = bars.length - 2; i >= 0; i--) {
-      if (dateIST(bars[i].timestamp) !== lastDay) return bars[i].close;
+      if (dateIST(bars[i].timestamp) !== lastDay) {
+        var px = Number(bars[i].close);
+        return isFinite(px) ? px : null;
+      }
     }
-    return bars[0].open;
+    return null;
   }
 
   function syncPrevClose() {
@@ -2100,6 +2224,9 @@
     var html = quoteHtml(price, prev);
     if (s) setSlotQuote(s, price, prev);
     if (liveQuoteEl) liveQuoteEl.innerHTML = html;
+    if (typeof updateWatchlistQuoteFor === "function" && slotQuoteReady(s)) {
+      updateWatchlistQuoteFor(s.instrument, price, prevCloseFromBars(s.rawBars));
+    }
   }
 
   function refreshLiveQuote() {
@@ -2360,6 +2487,7 @@
       unsubscribeLive();
       /* Auto-sync (settings/connect events): keep all slots' instruments. */
       commitSlotGlobals();
+      if (typeof renderWatchlist === "function") renderWatchlist();
     }
   };
 
@@ -2376,6 +2504,7 @@
       unsubscribeLive();
       /* Auto-sync: keep all slots' instruments. */
       commitSlotGlobals();
+      if (typeof renderWatchlist === "function") renderWatchlist();
       return;
     }
     if (connected) {
@@ -2423,6 +2552,7 @@
       updateSearchPlaceholder();
       unsubscribeLive();
       clearActiveSlotInstrument();
+      if (typeof renderWatchlist === "function") renderWatchlist();
     });
   });
 
@@ -2474,7 +2604,40 @@
       if (sp) sp.classList.add("hidden");
       if (lp) lp.classList.add("hidden");
     }
+    if (!e.target.closest(".wl-add-wrap")) {
+      if (typeof closeWatchlistAdd === "function") closeWatchlistAdd();
+    }
+    var path = typeof e.composedPath === "function" ? e.composedPath() : [];
+    var inWlMenu = path.some(function (n) {
+      return n && n.nodeType === 1 && (
+        n.id === "wl-lists-pop" ||
+        n.id === "wl-title-wrap" ||
+        (n.classList && n.classList.contains("wl-title-wrap"))
+      );
+    });
+    if (!inWlMenu && typeof closeWatchlistPicker === "function") closeWatchlistPicker();
   });
+
+  function applyInstrumentSelection(item) {
+    if (!item) return;
+    focusActiveSlot();
+    unsubscribeLive();
+    selectedInstrument = item;
+    if (chartSlots[activeSlot]) chartSlots[activeSlot].instrument = item;
+    if (layoutSync.symbol) applySymbolToLayout(item);
+    else {
+      commitSlotGlobals();
+      updateSlotTickers();
+    }
+    if (searchInput) searchInput.value = instrumentInputLabel(item);
+    if (dropdown) dropdown.classList.add("hidden");
+    if (searchInput) searchInput.blur();
+    Promise.resolve(loadChartData()).then(function () {
+      if (layoutSync.symbol) syncVisibleSlotsWithLayout();
+      else if (layoutSync.interval) loadSyncedSlots(activeSlot);
+    });
+    if (typeof renderWatchlist === "function") renderWatchlist();
+  }
 
   async function fetchSuggestions(q) {
     try {
@@ -2489,27 +2652,19 @@
       if (!items.length) { dropdown.classList.add("hidden"); return; }
       items.forEach(function (item) {
         var li = document.createElement("li");
-        var sym = item.trading_symbol;
+        var sym = item.trading_symbol || "";
+        var name = item.name || "";
         var seg = item.exchange_label || item.exchange_segment || "";
         if (activeBroker === "yahoo" && item.yahoo_symbol) {
           seg = item.yahoo_symbol;
         }
-        li.innerHTML = "<span class=\"sym\">" + sym + "</span>" + item.name + "<span class=\"seg\">" + seg + "</span>";
+        var showName = name && _normSym(name) !== _normSym(sym);
+        var showSeg = seg && _normSym(seg) !== _normSym(sym);
+        li.innerHTML = "<span class=\"sym\">" + escHtml(sym) + "</span>"
+          + (showName ? escHtml(name) : "")
+          + (showSeg ? "<span class=\"seg\">" + escHtml(seg) + "</span>" : "");
         li.addEventListener("click", function () {
-          focusActiveSlot();
-          selectedInstrument = item;
-          if (chartSlots[activeSlot]) chartSlots[activeSlot].instrument = item;
-          if (layoutSync.symbol) applySymbolToLayout(item);
-          else {
-            commitSlotGlobals();
-            updateSlotTickers();
-          }
-          searchInput.value = sym + " \u2014 " + item.name;
-          dropdown.classList.add("hidden");
-          searchInput.blur();
-          Promise.resolve(loadChartData()).then(function () {
-            if (layoutSync.symbol) loadSyncedSlots(activeSlot);
-          });
+          applyInstrumentSelection(item);
         });
         dropdown.appendChild(li);
       });
@@ -2536,7 +2691,8 @@
     commitSlotGlobals();
     updateSlotTickers();
     Promise.resolve(loadChartData()).then(function () {
-      if (layoutSync.symbol || layoutSync.interval) loadSyncedSlots(activeSlot);
+      if (layoutSync.symbol) syncVisibleSlotsWithLayout();
+      else if (layoutSync.interval) loadSyncedSlots(activeSlot);
     });
   });
 
@@ -2661,24 +2817,14 @@
   };
 
   window._chartOnHomeShown = function () {
-    forEachChart(function (c) {
-      try { c.resize(); } catch (_) {}
+    requestAnimationFrame(function () {
+      paintVisibleSlotCharts(true);
+      hydrateSlotCharts();
+      var snap = _replay.viewSnap;
+      if (snap && chart) restoreChartView(snap);
+      if (_replay.picking || _replay.active) updateReplayUi();
+      refreshVisibleSlots();
     });
-    var snap = _replay.viewSnap || captureChartView();
-    if (chart) {
-      try { chart.resize(); } catch (_) {}
-    }
-    var listLen = 0;
-    try { listLen = (chart && chart.getDataList && chart.getDataList()) || []; listLen = listLen.length; } catch (_) { listLen = 0; }
-    var vis = 0;
-    try {
-      var range = chart && chart.getVisibleRange && chart.getVisibleRange();
-      if (range && range.to != null && range.from != null) vis = Math.max(0, Number(range.to) - Number(range.from));
-    } catch (_) {}
-    if (listLen > 8 && vis < 3) fitLoadedChart();
-    else restoreChartView(snap);
-    if (_replay.picking || _replay.active) updateReplayUi();
-    refreshVisibleSlots();
   };
 
   function chartCenterCoord() {
@@ -4059,7 +4205,73 @@
     });
   }
 
+  function calcVol(dataList) {
+    return (dataList || []).map(function (k) {
+      return { volume: Number(k && k.volume) || 0 };
+    });
+  }
+
+  function drawVolOverlay(params) {
+    var ctx = params && params.ctx;
+    var bounding = params && params.bounding;
+    var visibleRange = params && params.visibleRange;
+    var barSpace = (params && params.barSpace) || {};
+    var indicator = params && params.indicator;
+    var xAxis = params && params.xAxis;
+    var kLineDataList = (params && params.kLineDataList) || [];
+    var result = (indicator && indicator.result) || [];
+    if (!ctx || !bounding || !xAxis) return true;
+    var from = 0;
+    var to = result.length;
+    if (visibleRange) {
+      from = visibleRange.realFrom != null ? visibleRange.realFrom : visibleRange.from;
+      to = visibleRange.realTo != null ? visibleRange.realTo : visibleRange.to;
+    }
+    from = Math.max(0, from | 0);
+    to = Math.min(result.length, to | 0);
+    var maxVol = 0;
+    var i;
+    for (i = from; i < to; i++) {
+      var vol = result[i] && Number(result[i].volume);
+      if (vol > maxVol) maxVol = vol;
+    }
+    if (!(maxVol > 0)) return true;
+    var areaH = Math.max(8, bounding.height * 0.26);
+    var baseY = bounding.height;
+    var gap = barSpace.gapBar != null ? barSpace.gapBar : 3;
+    var half = barSpace.halfGapBar != null ? barSpace.halfGapBar : gap / 2;
+    var w = Math.max(1, gap);
+    ctx.save();
+    for (i = from; i < to; i++) {
+      var v = result[i] && Number(result[i].volume);
+      if (!(v > 0)) continue;
+      var h = (v / maxVol) * areaH;
+      if (h < 1) h = 1;
+      var k = kLineDataList[i];
+      var up = !k || Number(k.close) >= Number(k.open);
+      ctx.fillStyle = up ? "rgba(63, 185, 80, 0.42)" : "rgba(248, 81, 73, 0.42)";
+      ctx.fillRect(xAxis.convertToPixel(i) - half, baseY - h, w, h);
+    }
+    ctx.restore();
+    return true;
+  }
+
   function localIndDef(baseName, uniqueName) {
+    if (baseName === "VOL") {
+      return {
+        name: uniqueName,
+        shortName: "VOL",
+        series: "normal",
+        precision: 0,
+        shouldOhlc: false,
+        shouldFormatBigNumber: true,
+        zLevel: -8,
+        calcParams: [],
+        figures: [],
+        calc: calcVol,
+        draw: drawVolOverlay
+      };
+    }
     if (baseName === "MA" || baseName === "EMA") {
       var prefix = baseName === "EMA" ? "ema" : "ma";
       return {
@@ -6862,8 +7074,10 @@
         }
         return;
       }
-      /* Full reload when not silent, chart missing, or slot has no bars yet (page restore). */
-      var isFullLoad = !silent || !!opts.syncLoad || !chart || !_rawBars.length;
+      /* Full reload when not silent, chart missing, slot has no bars, or the pane never painted. */
+      var painted = 0;
+      try { painted = (chart && chart.getDataList && chart.getDataList()) ? chart.getDataList().length : 0; } catch (_) { painted = 0; }
+      var isFullLoad = !silent || !!opts.syncLoad || !chart || !_rawBars.length || painted < 2;
       if (isFullLoad) {
         persistOverlays(loadSlot);
         _overlaysSuspended = true;
@@ -6883,7 +7097,9 @@
           restoreIndicators();
           await waitIndSeeds();
           fitLoadedChart();
-          if (chartSlots[loadSlot]) chartSlots[loadSlot].needsFit = false;
+          if (chartSlots[loadSlot] && chartHasSize(chartContainer)) {
+            chartSlots[loadSlot].needsFit = false;
+          }
           await restoreOverlays(loadSlot);
           fitLoadedChart();
           renderChartLegend();
@@ -6906,6 +7122,7 @@
           applyExcelOverlays();
         }
       }
+      slot.barsKey = instrumentQuoteKey(instrument);
       _lastBarTime = formatted.length ? formatted[formatted.length - 1].timestamp : _lastBarTime;
       syncPrevClose();
       if (_curSlot === activeSlot) {
@@ -7709,6 +7926,654 @@
   loadPyCatalog();
   syncChartBrokerTabs();
   updateSlotTickers();
+
+  /* ── Watchlist ── */
+  var _wlQuotes = {};
+  var _wlQuoteBusy = {};
+  var _wlOpen = storageGet(LS_WATCHLIST_OPEN, false) === true;
+  var _wlDragging = false;
+  var _wlSuppressClick = false;
+
+  function wlNewId() {
+    return "wl_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+  function brokerItemMap(raw) {
+    var map = { dhan: [], "5paisa": [], yahoo: [], excel: [] };
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return map;
+    Object.keys(map).forEach(function (k) {
+      if (Array.isArray(raw[k])) map[k] = raw[k];
+    });
+    return map;
+  }
+  function watchlistStore() {
+    var raw = storageGet(LS_WATCHLIST, null);
+    if (raw && raw.v === 2 && Array.isArray(raw.lists) && raw.lists.length) {
+      if (!raw.activeId || !raw.lists.some(function (L) { return L.id === raw.activeId; })) {
+        raw.activeId = raw.lists[0].id;
+      }
+      var renamed = false;
+      raw.lists.forEach(function (L) {
+        if (!L || String(L.name).toLowerCase() !== "favorites") return;
+        var taken = raw.lists.some(function (o) {
+          return o && o.id !== L.id && String(o.name).toLowerCase() === "watchlist";
+        });
+        L.name = taken ? "Watchlist 2" : "Watchlist";
+        renamed = true;
+      });
+      if (renamed) saveWatchlistStore(raw);
+      return raw;
+    }
+    var itemsByBroker = { dhan: [], "5paisa": [], yahoo: [], excel: [] };
+    if (Array.isArray(raw)) {
+      itemsByBroker["5paisa"] = raw;
+    } else if (raw && typeof raw === "object") {
+      itemsByBroker = brokerItemMap(raw.itemsByBroker || raw);
+    }
+    var first = { id: wlNewId(), name: "Watchlist", itemsByBroker: itemsByBroker };
+    var migrated = { v: 2, activeId: first.id, lists: [first] };
+    saveWatchlistStore(migrated);
+    return migrated;
+  }
+  function saveWatchlistStore(store) {
+    storageSet(LS_WATCHLIST, store);
+  }
+  function watchlistLists() {
+    return watchlistStore().lists;
+  }
+  function activeWatchlist() {
+    var store = watchlistStore();
+    var i;
+    for (i = 0; i < store.lists.length; i++) {
+      if (store.lists[i].id === store.activeId) return store.lists[i];
+    }
+    return store.lists[0];
+  }
+  function watchlistItems() {
+    var list = activeWatchlist();
+    var map = (list && list.itemsByBroker) || {};
+    return Array.isArray(map[activeBroker]) ? map[activeBroker].slice() : [];
+  }
+  function persistWatchlist(items) {
+    var store = watchlistStore();
+    var i;
+    for (i = 0; i < store.lists.length; i++) {
+      if (store.lists[i].id !== store.activeId) continue;
+      if (!store.lists[i].itemsByBroker) store.lists[i].itemsByBroker = brokerItemMap(null);
+      store.lists[i].itemsByBroker[activeBroker] = items;
+      break;
+    }
+    saveWatchlistStore(store);
+  }
+  function setActiveWatchlist(id) {
+    var store = watchlistStore();
+    if (!store.lists.some(function (L) { return L.id === id; })) return;
+    store.activeId = id;
+    saveWatchlistStore(store);
+    closeWatchlistPicker();
+    renderWatchlist();
+    refreshWatchlistQuotes();
+  }
+  function uniqueWatchlistName(base, exceptId) {
+    var name = String(base || "").trim() || "Watchlist";
+    var lists = watchlistLists();
+    function taken(n) {
+      return lists.some(function (L) {
+        return L.id !== exceptId && String(L.name).toLowerCase() === n.toLowerCase();
+      });
+    }
+    if (!taken(name)) return name;
+    var n = 2;
+    while (taken(name + " " + n)) n++;
+    return name + " " + n;
+  }
+  function createWatchlist(name) {
+    var store = watchlistStore();
+    var list = {
+      id: wlNewId(),
+      name: uniqueWatchlistName(name || "Watchlist"),
+      itemsByBroker: brokerItemMap(null)
+    };
+    store.lists.push(list);
+    store.activeId = list.id;
+    saveWatchlistStore(store);
+    closeWatchlistPicker();
+    renderWatchlist();
+  }
+  function renameWatchlist(id, name) {
+    name = String(name || "").trim();
+    if (!name) return;
+    var store = watchlistStore();
+    store.lists.forEach(function (L) {
+      if (L.id === id) L.name = uniqueWatchlistName(name, id);
+    });
+    saveWatchlistStore(store);
+    closeWatchlistPicker();
+    renderWatchlist();
+  }
+  function deleteWatchlist(id) {
+    var store = watchlistStore();
+    if (store.lists.length < 2) return;
+    store.lists = store.lists.filter(function (L) { return L.id !== id; });
+    if (store.activeId === id) store.activeId = store.lists[0].id;
+    saveWatchlistStore(store);
+    closeWatchlistPicker();
+    renderWatchlist();
+    refreshWatchlistQuotes();
+  }
+  function closeWatchlistPicker() {
+    var pop = document.getElementById("wl-lists-pop");
+    var btn = document.getElementById("btn-wl-lists");
+    if (pop) {
+      pop.classList.add("hidden");
+      pop.innerHTML = "";
+    }
+    if (btn) {
+      btn.classList.remove("on");
+      btn.setAttribute("aria-expanded", "false");
+    }
+  }
+  function showWatchlistForm(mode) {
+    var pop = document.getElementById("wl-lists-pop");
+    if (!pop) return;
+    var current = activeWatchlist();
+    var label = mode === "rename" ? "Update watchlist name" : "New watchlist name";
+    var initial = mode === "rename" && current ? current.name : uniqueWatchlistName("Watchlist");
+    pop.innerHTML =
+      "<div class=\"wl-list-form\">" +
+      "<label class=\"wl-list-pick-n\">" + escHtml(label) + "</label>" +
+      "<input type=\"text\" id=\"wl-list-name-input\" maxlength=\"40\" />" +
+      "<div class=\"wl-list-form-row\">" +
+      "<button type=\"button\" id=\"wl-form-cancel\">Cancel</button>" +
+      "<button type=\"button\" class=\"wl-form-ok\" id=\"wl-form-ok\">" + (mode === "rename" ? "Update" : "Create") + "</button>" +
+      "</div></div>";
+    var inp = document.getElementById("wl-list-name-input");
+    function submit() {
+      var val = inp ? inp.value.trim() : "";
+      if (!val) return;
+      if (mode === "rename" && current) renameWatchlist(current.id, val);
+      else createWatchlist(val);
+    }
+    if (inp) {
+      inp.value = initial;
+      inp.focus();
+      inp.select();
+      inp.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); submit(); }
+        if (e.key === "Escape") { e.preventDefault(); renderWatchlistPicker(); }
+      });
+    }
+    var ok = document.getElementById("wl-form-ok");
+    var cancel = document.getElementById("wl-form-cancel");
+    if (ok) ok.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      submit();
+    });
+    if (cancel) cancel.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      renderWatchlistPicker();
+    });
+  }
+  function renderWatchlistPicker() {
+    var pop = document.getElementById("wl-lists-pop");
+    if (!pop) return;
+    var store = watchlistStore();
+    var html = "";
+    store.lists.forEach(function (L) {
+      var map = L.itemsByBroker || {};
+      var n = Array.isArray(map[activeBroker]) ? map[activeBroker].length : 0;
+      html += "<button type=\"button\" class=\"wl-list-pick" + (L.id === store.activeId ? " on" : "") + "\" data-wl-id=\"" + escHtml(L.id) + "\">" +
+        "<span class=\"wl-list-pick-name\">" + escHtml(L.name) + "</span>" +
+        "<span class=\"wl-list-pick-n\">" + n + "</span></button>";
+    });
+    html += "<div class=\"wl-lists-sep\"></div>";
+    html += "<button type=\"button\" class=\"wl-list-action\" data-wl-act=\"create\">+ Create watchlist</button>";
+    html += "<button type=\"button\" class=\"wl-list-action\" data-wl-act=\"rename\">Update watchlist</button>";
+    html += "<button type=\"button\" class=\"wl-list-action danger\" data-wl-act=\"delete\"" +
+      (store.lists.length < 2 ? " disabled" : "") + ">Delete watchlist</button>";
+    pop.innerHTML = html;
+    pop.querySelectorAll("[data-wl-id]").forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        setActiveWatchlist(b.getAttribute("data-wl-id"));
+      });
+    });
+    pop.querySelectorAll("[data-wl-act]").forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var act = b.getAttribute("data-wl-act");
+        if (act === "create") showWatchlistForm("create");
+        else if (act === "rename") showWatchlistForm("rename");
+        else if (act === "delete" && store.lists.length > 1) {
+          var cur = activeWatchlist();
+          if (cur && window.confirm("Delete watchlist \"" + cur.name + "\"?")) deleteWatchlist(cur.id);
+        }
+      });
+    });
+  }
+  function openWatchlistPicker() {
+    closeWatchlistAdd();
+    var pop = document.getElementById("wl-lists-pop");
+    var btn = document.getElementById("btn-wl-lists");
+    if (!pop) return;
+    renderWatchlistPicker();
+    pop.classList.remove("hidden");
+    if (btn) {
+      btn.classList.add("on");
+      btn.setAttribute("aria-expanded", "true");
+    }
+  }
+  function hydrateWatchlistQuotes() {
+    watchlistItems().forEach(function (row) {
+      var inst = row.instrument || row;
+      var key = watchlistKey(inst);
+      if (!key || _wlQuotes[key]) return;
+      if (row.last == null || !isFinite(Number(row.last))) return;
+      _wlQuotes[key] = { last: Number(row.last), prev: row.prev != null ? Number(row.prev) : null, ts: 0 };
+    });
+  }
+  function watchlistKey(inst) {
+    return instrumentQuoteKey(inst);
+  }
+  function watchlistHas(inst) {
+    var key = watchlistKey(inst);
+    if (!key) return false;
+    return watchlistItems().some(function (row) { return watchlistKey(row.instrument || row) === key; });
+  }
+  function closeWatchlistAdd() {
+    var pop = document.getElementById("wl-add-pop");
+    var dd = document.getElementById("wl-add-dropdown");
+    var inp = document.getElementById("wl-add-input");
+    var addBtn = document.getElementById("btn-wl-add");
+    if (pop) pop.classList.add("hidden");
+    if (dd) { dd.classList.add("hidden"); dd.innerHTML = ""; }
+    if (inp) inp.value = "";
+    if (addBtn) addBtn.classList.remove("on");
+  }
+  function openWatchlistAdd() {
+    var pop = document.getElementById("wl-add-pop");
+    var inp = document.getElementById("wl-add-input");
+    var addBtn = document.getElementById("btn-wl-add");
+    if (!pop) return;
+    closeWatchlistPicker();
+    pop.classList.remove("hidden");
+    if (addBtn) addBtn.classList.add("on");
+    if (inp) {
+      inp.focus();
+      if (activeBroker === "excel") fetchWatchlistSuggestions(inp.value.trim());
+    }
+  }
+  function applyWatchlistOpen(on) {
+    _wlOpen = !!on;
+    var panel = document.getElementById("chart-watchlist");
+    var btn = document.getElementById("btn-watchlist");
+    if (panel) panel.classList.toggle("open", _wlOpen);
+    if (btn) {
+      btn.classList.toggle("active", _wlOpen);
+      btn.setAttribute("aria-expanded", _wlOpen ? "true" : "false");
+    }
+    storageSet(LS_WATCHLIST_OPEN, _wlOpen);
+    if (!_wlOpen) closeWatchlistAdd();
+    if (!_wlOpen) closeWatchlistPicker();
+    requestAnimationFrame(function () { paintVisibleSlotCharts(true); });
+    if (_wlOpen) {
+      renderWatchlist();
+      refreshWatchlistQuotes();
+    }
+  }
+  function fmtWlPx(v) {
+    v = Number(v);
+    if (!isFinite(v)) return "—";
+    if (Math.abs(v) >= 1000) return v.toLocaleString("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 1 });
+    return v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function quoteClass(chg) {
+    if (!(chg > 0 || chg < 0)) return "flat";
+    return chg > 0 ? "up" : "down";
+  }
+  function renderWatchlist() {
+    if (_wlDragging) return;
+    var list = document.getElementById("wl-list");
+    var nameEl = document.getElementById("wl-title-name");
+    var cur = activeWatchlist();
+    if (nameEl) nameEl.textContent = (cur && cur.name) || "Watchlist";
+    var items = watchlistItems();
+    if (!list) return;
+    if (!items.length) {
+      list.innerHTML = "<div class=\"wl-empty\">No instruments in this watchlist.<br>Use + to add, or create another watchlist.</div>";
+      return;
+    }
+    var activeKey = watchlistKey(selectedInstrument);
+    list.innerHTML = "";
+    items.forEach(function (row, idx) {
+      var inst = row.instrument || row;
+      var key = watchlistKey(inst);
+      var q = _wlQuotes[key] || {};
+      var last = q.last != null ? q.last : row.last;
+      var prev = null;
+      if (q.last != null && q.prev != null) prev = q.prev;
+      else if (q.last == null && row.last != null && row.prev != null) prev = row.prev;
+      var chg = (last != null && prev != null && isFinite(last) && isFinite(prev) && prev !== 0) ? last - prev : null;
+      var pct = (chg != null) ? (chg / Math.abs(prev)) * 100 : null;
+      if (pct != null && Math.abs(pct) > 40) {
+        chg = null;
+        pct = null;
+      }
+      var cls = chg == null ? "" : quoteClass(chg);
+      var el = document.createElement("div");
+      el.className = "wl-row" + (key && key === activeKey ? " on" : "");
+      el.setAttribute("data-wl-idx", String(idx));
+      el.setAttribute("draggable", "true");
+      el.innerHTML =
+        "<span class=\"wl-sym\" title=\"" + escHtml(instrumentInputLabel(inst)) + "\">" + escHtml(inst.trading_symbol || "") + "</span>" +
+        "<span class=\"wl-px" + (cls ? " " + cls : "") + "\">" + fmtWlPx(last) + "</span>" +
+        "<span class=\"wl-chg" + (cls ? " " + cls : "") + "\">" + (chg == null ? "—" : ((chg > 0 ? "+" : "") + fmtWlPx(chg))) + "</span>" +
+        "<span class=\"wl-pct" + (cls ? " " + cls : "") + "\">" + (pct == null ? "—" : ((pct > 0 ? "+" : "") + pct.toFixed(2) + "%")) + "</span>" +
+        "<button type=\"button\" class=\"wl-remove\" title=\"Remove\" aria-label=\"Remove\" draggable=\"false\">×</button>";
+      el.addEventListener("click", function (e) {
+        if (e.target.closest(".wl-remove")) return;
+        if (_wlSuppressClick) {
+          _wlSuppressClick = false;
+          return;
+        }
+        applyInstrumentSelection(inst);
+      });
+      var rm = el.querySelector(".wl-remove");
+      if (rm) {
+        rm.addEventListener("click", function (e) {
+          e.stopPropagation();
+          var rowEl = e.target.closest(".wl-row");
+          var i = rowEl ? parseInt(rowEl.getAttribute("data-wl-idx"), 10) : idx;
+          var next = watchlistItems().filter(function (_, j) { return j !== i; });
+          persistWatchlist(next);
+          renderWatchlist();
+        });
+      }
+      list.appendChild(el);
+    });
+    bindWatchlistDrag(list);
+  }
+  function commitWatchlistOrderFromDom() {
+    var list = document.getElementById("wl-list");
+    if (!list) return;
+    var items = watchlistItems();
+    var next = [];
+    list.querySelectorAll(".wl-row").forEach(function (row) {
+      var i = parseInt(row.getAttribute("data-wl-idx"), 10);
+      if (isFinite(i) && items[i]) next.push(items[i]);
+    });
+    if (next.length !== items.length) return;
+    var changed = next.some(function (row, i) { return row !== items[i]; });
+    if (!changed) return;
+    persistWatchlist(next);
+    list.querySelectorAll(".wl-row").forEach(function (row, i) {
+      row.setAttribute("data-wl-idx", String(i));
+    });
+  }
+  function bindWatchlistDrag(list) {
+    if (!list || list._wlDragBound) return;
+    list._wlDragBound = true;
+    list.addEventListener("dragstart", function (e) {
+      var row = e.target.closest(".wl-row");
+      if (!row || e.target.closest(".wl-remove")) {
+        e.preventDefault();
+        return;
+      }
+      _wlDragging = true;
+      _wlSuppressClick = true;
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", row.getAttribute("data-wl-idx") || ""); } catch (_) {}
+      row.classList.add("dragging");
+    });
+    list.addEventListener("dragover", function (e) {
+      var over = e.target.closest(".wl-row");
+      if (!over || !list.contains(over)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      var dragging = list.querySelector(".wl-row.dragging");
+      if (!dragging || dragging === over) return;
+      var rect = over.getBoundingClientRect();
+      var before = (e.clientY - rect.top) < rect.height / 2;
+      list.insertBefore(dragging, before ? over : over.nextSibling);
+    });
+    list.addEventListener("drop", function (e) {
+      e.preventDefault();
+      commitWatchlistOrderFromDom();
+    });
+    list.addEventListener("dragend", function (e) {
+      var row = e.target.closest(".wl-row");
+      if (row) row.classList.remove("dragging");
+      commitWatchlistOrderFromDom();
+      _wlDragging = false;
+      setTimeout(function () { _wlSuppressClick = false; }, 0);
+    });
+  }
+  function setWatchlistQuote(inst, last, prev) {
+    var key = watchlistKey(inst);
+    if (!key) return;
+    last = Number(last);
+    if (!isFinite(last)) return;
+    var old = _wlQuotes[key] || {};
+    var prevN = prev != null ? Number(prev) : NaN;
+    var nextPrev = isFinite(prevN) && prevN !== 0 ? prevN : old.prev;
+    if (isFinite(nextPrev) && nextPrev !== 0 && Math.abs(last - nextPrev) / Math.abs(nextPrev) > 0.4) {
+      nextPrev = isFinite(Number(old.prev)) ? old.prev : null;
+    }
+    _wlQuotes[key] = {
+      last: last,
+      prev: nextPrev != null && isFinite(Number(nextPrev)) ? Number(nextPrev) : null,
+      ts: Date.now()
+    };
+  }
+  function updateWatchlistQuoteFor(inst, last, prev) {
+    if (!inst || !watchlistHas(inst)) return;
+    setWatchlistQuote(inst, last, prev);
+    if (_wlOpen) renderWatchlist();
+  }
+  function syncWatchlistQuotesFromSlots() {
+    var i;
+    var changed = false;
+    for (i = 0; i < splitCount; i++) {
+      var s = chartSlots[i];
+      if (!s || !s.instrument || !slotQuoteReady(s)) continue;
+      if (!watchlistHas(s.instrument)) continue;
+      var last = s.rawBars[s.rawBars.length - 1].close;
+      var prev = prevCloseFromBars(s.rawBars);
+      setWatchlistQuote(s.instrument, last, prev);
+      changed = true;
+    }
+    if (changed && _wlOpen) renderWatchlist();
+  }
+  function addWatchlistInstrument(item) {
+    if (!item) return;
+    if (watchlistHas(item)) {
+      closeWatchlistAdd();
+      renderWatchlist();
+      return;
+    }
+    var items = watchlistItems();
+    items.push({ instrument: item });
+    persistWatchlist(items);
+    closeWatchlistAdd();
+    renderWatchlist();
+    refreshWatchlistQuotes();
+  }
+  async function fetchWatchlistSuggestions(q) {
+    var dd = document.getElementById("wl-add-dropdown");
+    if (!dd) return;
+    try {
+      var url = "/api/instruments/search?q=" + encodeURIComponent(q) + "&limit=12";
+      if (activeBroker === "5paisa") url = "/api/5paisa/instruments/search?q=" + encodeURIComponent(q) + "&limit=12";
+      if (activeBroker === "yahoo") url = "/api/yahoo/instruments/search?q=" + encodeURIComponent(q) + "&limit=12";
+      if (activeBroker === "excel") url = "/api/excel/instruments/search?q=" + encodeURIComponent(q) + "&limit=20";
+      if (activeBroker !== "excel" && (!q || q.length < 1)) {
+        dd.classList.add("hidden");
+        dd.innerHTML = "";
+        return;
+      }
+      var res = await fetch(url);
+      var items = await res.json();
+      if (items.error) { dd.classList.add("hidden"); return; }
+      dd.innerHTML = "";
+      if (!items.length) { dd.classList.add("hidden"); return; }
+      items.forEach(function (item) {
+        var li = document.createElement("li");
+        var sym = item.trading_symbol || "";
+        var name = item.name || "";
+        var seg = item.exchange_label || item.exchange_segment || "";
+        if (activeBroker === "yahoo" && item.yahoo_symbol) seg = item.yahoo_symbol;
+        var showName = name && _normSym(name) !== _normSym(sym);
+        var showSeg = seg && _normSym(seg) !== _normSym(sym);
+        li.innerHTML = "<span class=\"sym\">" + escHtml(sym) + "</span>"
+          + (showName ? escHtml(name) : "")
+          + (showSeg ? "<span class=\"seg\">" + escHtml(seg) + "</span>" : "");
+        li.addEventListener("click", function () {
+          addWatchlistInstrument(item);
+        });
+        dd.appendChild(li);
+      });
+      if (dd.firstElementChild) dd.firstElementChild.classList.add("active");
+      dd.classList.remove("hidden");
+    } catch (_) {}
+  }
+  async function refreshWatchlistQuotes() {
+    var items = watchlistItems();
+    var i;
+    for (i = 0; i < items.length; i++) {
+      (function (row) {
+        var inst = row.instrument || row;
+        var key = watchlistKey(inst);
+        if (!key || _wlQuoteBusy[key]) return;
+        var cached = _wlQuotes[key];
+        if (cached && cached.prev != null && Date.now() - cached.ts < 20000) return;
+        var slotMatch = null;
+        var si;
+        for (si = 0; si < splitCount; si++) {
+          var s = chartSlots[si];
+          if (s && slotQuoteReady(s) && instrumentsMatch(s.instrument, inst)) {
+            slotMatch = s;
+            break;
+          }
+        }
+        if (slotMatch) {
+          var last = slotMatch.rawBars[slotMatch.rawBars.length - 1].close;
+          var prev = prevCloseFromBars(slotMatch.rawBars);
+          setWatchlistQuote(inst, last, prev);
+          if (_wlOpen) renderWatchlist();
+          if (prev != null && isFinite(Number(prev))) return;
+        }
+        _wlQuoteBusy[key] = true;
+        var toDate = dateIST(Date.now());
+        var fromDate = shiftDate(toDate, -12);
+        var yrange = clampYahooRange(fromDate, toDate, "D");
+        fetchCandlesFor(inst, "D", yrange.fromDate, toDate).then(function (pack) {
+          var bars = (pack && pack.candles) || [];
+          if (bars.length) {
+            var px = bars[bars.length - 1].close;
+            var pc = prevCloseFromBars(bars);
+            setWatchlistQuote(inst, px, pc);
+            var saved = watchlistItems();
+            saved.forEach(function (row) {
+              var it = row.instrument || row;
+              if (watchlistKey(it) === key) {
+                row.last = px;
+                if (pc != null) row.prev = pc;
+              }
+            });
+            persistWatchlist(saved);
+            if (_wlOpen) renderWatchlist();
+          }
+        }).catch(function () {}).then(function () {
+          _wlQuoteBusy[key] = false;
+        });
+      })(items[i]);
+    }
+  }
+
+  var wlToggle = document.getElementById("btn-watchlist");
+  if (wlToggle) {
+    wlToggle.addEventListener("click", function () {
+      applyWatchlistOpen(!_wlOpen);
+    });
+  }
+  var wlCollapse = document.getElementById("btn-wl-collapse");
+  if (wlCollapse) {
+    wlCollapse.addEventListener("click", function () {
+      applyWatchlistOpen(false);
+    });
+  }
+  var wlListsPop = document.getElementById("wl-lists-pop");
+  if (wlListsPop && !wlListsPop._boundStop) {
+    wlListsPop._boundStop = true;
+    wlListsPop.addEventListener("click", function (e) { e.stopPropagation(); });
+    wlListsPop.addEventListener("mousedown", function (e) { e.stopPropagation(); });
+  }
+  var wlListsBtn = document.getElementById("btn-wl-lists");
+  if (wlListsBtn) {
+    wlListsBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var pop = document.getElementById("wl-lists-pop");
+      if (pop && !pop.classList.contains("hidden")) closeWatchlistPicker();
+      else openWatchlistPicker();
+    });
+  }
+  var wlAddBtn = document.getElementById("btn-wl-add");
+  if (wlAddBtn) {
+    wlAddBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var pop = document.getElementById("wl-add-pop");
+      if (pop && !pop.classList.contains("hidden")) closeWatchlistAdd();
+      else openWatchlistAdd();
+    });
+  }
+  var wlAddInput = document.getElementById("wl-add-input");
+  var wlAddTimer = null;
+  if (wlAddInput) {
+    wlAddInput.addEventListener("input", function () {
+      clearTimeout(wlAddTimer);
+      var q = wlAddInput.value.trim();
+      wlAddTimer = setTimeout(function () { fetchWatchlistSuggestions(q); }, 220);
+    });
+    wlAddInput.addEventListener("keydown", function (e) {
+      var dd = document.getElementById("wl-add-dropdown");
+      if (!dd) return;
+      var items = dd.querySelectorAll("li");
+      var active = dd.querySelector("li.active");
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (!active) { items[0] && items[0].classList.add("active"); }
+        else {
+          active.classList.remove("active");
+          var n = active.nextElementSibling;
+          if (n) n.classList.add("active");
+          else items[0] && items[0].classList.add("active");
+        }
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (!active) { items[items.length - 1] && items[items.length - 1].classList.add("active"); }
+        else {
+          active.classList.remove("active");
+          var p = active.previousElementSibling;
+          if (p) p.classList.add("active");
+          else items[items.length - 1] && items[items.length - 1].classList.add("active");
+        }
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        var pick = active || items[0];
+        if (pick) pick.click();
+      } else if (e.key === "Escape") {
+        closeWatchlistAdd();
+      }
+    });
+  }
+
+  hydrateWatchlistQuotes();
+  renderWatchlist();
+  applyWatchlistOpen(_wlOpen);
+
   /* After layout/meta restore, load all saved charts once brokers are ready. */
   setTimeout(function () {
     refreshVisibleSlots();

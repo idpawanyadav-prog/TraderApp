@@ -1,51 +1,11 @@
 {
-  "api_enabled": false,
+  "api_enabled": true,
   "dhan_enabled": false,
-  "5paisa_enabled": false,
+  "5paisa_enabled": true,
   "yahoo_enabled": false,
   "yahoo_base_url": "https://query1.finance.yahoo.com/v8/finance/chart/{YahooStockSymbol}?symbol={YahooStockSymbol}&period1={UTCStartDTM}&period2={UTCEndDTM}&useYfid=true&interval={Interval}",
-  "excel_enabled": true,
-  "excel_configs": [
-    {
-      "id": "23137620-faa6-470c-9edf-ef1b21b0e8c2",
-      "name": "Test1",
-      "workbook": "Testing.xlsx",
-      "sheet": "Test1",
-      "header_row": 2,
-      "poll_seconds": 5,
-      "mapping": {
-        "date": "DTM",
-        "open": "Open",
-        "high": "H",
-        "low": "L",
-        "close": "Close",
-        "volume": ""
-      },
-      "indicators": [
-        {
-          "name": "Indicator1",
-          "column": "XYZ"
-        }
-      ]
-    },
-    {
-      "id": "2545664d-1dd6-45dc-92bf-16862a3d36f5",
-      "name": "Test2",
-      "workbook": "Testing - Copy.xlsx",
-      "sheet": "Test1",
-      "header_row": 2,
-      "poll_seconds": 5,
-      "mapping": {
-        "date": "DTM",
-        "open": "Open",
-        "high": "H",
-        "low": "L",
-        "close": "Close",
-        "volume": ""
-      },
-      "indicators": []
-    }
-  ],
+  "excel_enabled": false,
+  "excel_configs": [],
   "chart_refresh_interval": 0,
   "enabled_exchanges": [
     "N",
@@ -175,79 +135,24 @@
   "ta_enabled": false,
   "ta_indicators": [],
   "chart_drawings": {
-    "5paisa|N|INFY|1594|25": [],
-    "5paisa|N|INFY|1594|60": [],
-    "5paisa|N|INFY|1594|5": [],
-    "5paisa|N|INFY|1594|15": [],
-    "5paisa|N|RELIANCE|2885|5": [],
-    "5paisa|N|RELIANCE|2885|25": [],
-    "5paisa|N|RELIANCE|2885|60": [],
-    "5paisa|N|RELIANCE|2885|15": [],
-    "excel||TEST1|23137620-faa6-470c-9edf-ef1b21b0e8c2|5": [],
-    "excel||TEST1|23137620-faa6-470c-9edf-ef1b21b0e8c2|15": [],
-    "excel||TEST1|23137620-faa6-470c-9edf-ef1b21b0e8c2|1": [],
-    "excel||TEST1|23137620-faa6-470c-9edf-ef1b21b0e8c2|25": [],
-    "excel||TEST1|23137620-faa6-470c-9edf-ef1b21b0e8c2|60": [],
-    "excel||TEST1|23137620-faa6-470c-9edf-ef1b21b0e8c2|M": [],
-    "excel||TEST1|23137620-faa6-470c-9edf-ef1b21b0e8c2|W": [],
-    "excel||TEST1|23137620-faa6-470c-9edf-ef1b21b0e8c2|Q": [],
-    "excel||TEST1|23137620-faa6-470c-9edf-ef1b21b0e8c2|D": [],
-    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|25": [],
-    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|1": [],
-    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|60": [],
-    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|W": [],
-    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|M": [],
-    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|15": [],
-    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|D": [],
-    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|5": [],
-    "5paisa|N|RELIANCE|2885|1": [
-      {
-        "name": "rayLine",
-        "points": [
-          {
-            "timestamp": 1786685400000,
-            "value": 1158.7092889221558,
-            "dataIndex": 1056
-          },
-          {
-            "value": 1165.3945583832335,
-            "dataIndex": 1110
-          }
-        ],
-        "extendData": null
-      }
-    ],
+    "yahoo||TCS|TCS.NS|D": [],
     "5paisa|N|INFY|1594|1": [],
+    "5paisa|N|INFY|1594|5": [],
+    "5paisa|N|INFY|1594|25": [],
     "5paisa|N|INFY|1594|D": [],
-    "5paisa|N|RELIANCE|2885|D": [
-      {
-        "name": "rayLine",
-        "points": [
-          {
-            "timestamp": 1786685400000,
-            "value": 1158.7092889221558,
-            "dataIndex": 1056
-          },
-          {
-            "value": 1165.3945583832335,
-            "dataIndex": 1110
-          }
-        ],
-        "extendData": null
-      }
-    ],
     "5paisa|N|TCS|11536|1": [],
+    "5paisa|N|TCS|11536|5": [],
     "5paisa|N|TCS|11536|25": [],
     "5paisa|N|TCS|11536|D": [],
-    "5paisa|N|NHPC|17400|1": [],
-    "5paisa|N|NHPC|17400|25": [],
-    "5paisa|N|NHPC|17400|D": [],
-    "5paisa|B|ITC|500875|1": [],
-    "5paisa|B|ITC|500875|25": [],
-    "5paisa|B|ITC|500875|D": [],
     "5paisa|N|ITC|1660|1": [],
+    "5paisa|N|ITC|1660|5": [],
     "5paisa|N|ITC|1660|25": [],
-    "5paisa|N|ITC|1660|D": []
+    "5paisa|N|ITC|1660|D": [],
+    "5paisa|N|SBIN|3045|1": [],
+    "5paisa|N|SBIN|3045|5": [],
+    "5paisa|N|SBIN|3045|25": [],
+    "5paisa|N|SBIN|3045|D": [],
+    "yahoo||INFY|INFY.NS|D": []
   },
   "broker_intervals": {
     "dhan": [
@@ -401,5 +306,5 @@
       }
     ]
   },
-  "api_key": "eecb29e0-fe9f-4bfc-a496-43f2097bf630"
+  "api_key": "3fa56b4c-cd7a-4cf5-a24c-108030d55981"
 }

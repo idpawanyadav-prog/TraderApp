@@ -2054,15 +2054,28 @@ def indicator_settings():
     })
 
 
+def _ta_catalog_payload():
+    return {
+        "success": True,
+        "indicators": TA_CATALOG,
+        "custom_indicators": _custom_api_catalog(),
+    }
+
+
+@app.route("/api/ta/catalog", methods=["GET"])
+def ta_catalog():
+    """In-app catalog. Public callers must use /public/api/ta/catalog."""
+    return jsonify(_ta_catalog_payload())
+
+
 @app.route("/public/api/ta/catalog", methods=["GET", "OPTIONS"])
 def public_ta_catalog():
     if request.method == "OPTIONS":
         return _cors(make_response("", 204))
-    return _cors(make_response(jsonify({
-        "success": True,
-        "indicators": TA_CATALOG,
-        "custom_indicators": _custom_api_catalog(),
-    }), 200))
+    ok, err = _check_api_enabled()
+    if not ok:
+        return err
+    return _cors(make_response(jsonify(_ta_catalog_payload()), 200))
 
 
 # ---------- Public API (for external apps) ----------
@@ -2122,7 +2135,8 @@ def public_fp_chart():
     access_token = creds.get("5paisa", {}).get("access_token", "").strip()
     if not access_token:
         return _cors(make_response(jsonify({"error": "5Paisa not connected."}), 401))
-    payload    = request.get_json(force=True)
+    payload    = request.get_json(force=True) or {}
+    use_ta     = _request_wants_ta(payload)
     scrip_code = str(payload.get("scrip_code", "")).strip()
     exch       = payload.get("exch", "N").strip()
     exch_type  = payload.get("exch_type", "C").strip()
@@ -2141,7 +2155,11 @@ def public_fp_chart():
             symbol=symbol, **_datafeed_opts(),
         )
         candles = _filter_market_hours(candles, interval)
-        return _cors(make_response(jsonify({"success": True, "candles": candles, "count": len(candles)}), 200))
+        candles, applied_ta_ids, ta_warning = _apply_saved_ta(candles, use_ta)
+        result = {"success": True, "candles": candles, "count": len(candles), "ta_applied": applied_ta_ids}
+        if ta_warning:
+            result["ta_warning"] = ta_warning
+        return _cors(make_response(jsonify(result), 200))
     except Exception as e:
         return _cors(make_response(jsonify({"error": str(e)}), 500))
 
@@ -2586,6 +2604,43 @@ def _apply_ta_indicators(candles, indicators):
     return candles, applied_fields
 
 
+def _request_wants_ta(payload=None):
+    """True when the caller asked for indicators via TA=true (query or JSON body)."""
+    for key, val in request.args.items():
+        if str(key).lower() == "ta" and str(val).strip().lower() in ("1", "true", "yes", "y", "on"):
+            return True
+    if payload is None:
+        payload = request.get_json(silent=True) if request.is_json else None
+    if isinstance(payload, dict):
+        for key in ("TA", "ta"):
+            if str(payload.get(key, "")).strip().lower() in ("1", "true", "yes", "y", "on"):
+                return True
+    return False
+
+
+def _apply_saved_ta(candles, use_ta):
+    """Attach Settings indicators when TA=true. The Settings toggle is not required."""
+    applied = []
+    warning = None
+    if not use_ta:
+        return candles, applied, warning
+    indicators = _normalize_ta_indicators(load_app_settings().get("ta_indicators", []))
+    if not indicators:
+        return candles, applied, "TA=true but no indicators are saved in Settings."
+    candles, applied = _apply_ta_indicators(candles, indicators)
+    if not applied:
+        warning = "TA=true but no indicator fields were produced."
+    return candles, applied, warning
+
+
+def _with_ta_fields(field_codes, applied_ta_ids):
+    out = list(field_codes)
+    for ta_id in applied_ta_ids or []:
+        if ta_id not in out:
+            out.append(ta_id)
+    return out
+
+
 @app.route("/public/api/5paisa/historical", methods=["GET", "OPTIONS"])
 def public_fp_historical():
     """
@@ -2619,8 +2674,7 @@ def public_fp_historical():
         _load_fp_instruments()   # blocking load so symbol lookups work immediately
 
     interval = request.args.get("interval", "15").strip()
-    ta_param = request.args.get("TA", "false").strip().lower()
-    use_ta = ta_param in ("1", "true", "yes", "y", "on")
+    use_ta = _request_wants_ta()
     version  = request.args.get("v", "1").strip()   # v=1 JSON (default), v=2 pipe-delimited
     today    = datetime.today()
     valid_intervals = {"1", "5", "15", "25", "60", "D"}
@@ -2739,22 +2793,15 @@ def public_fp_historical():
         )
         candles = _forward_fill_candles(candles, interval)
         candles = _filter_market_hours(candles, interval)
-        applied_ta_ids = []
-        if use_ta:
-            s = load_app_settings()
-            ta_enabled = bool(s.get("ta_enabled", False))
-            ta_indicators = _normalize_ta_indicators(s.get("ta_indicators", []))
-            if ta_enabled and ta_indicators:
-                candles, applied_ta_ids = _apply_ta_indicators(candles, ta_indicators)
+        candles, applied_ta_ids, ta_warning = _apply_saved_ta(candles, use_ta)
 
         field_codes = [f.strip().upper() for f in fields_param.split(",") if f.strip()] if fields_param else ["DTM", "O", "H", "L", "C", "V"]
+        export_codes = _with_ta_fields(field_codes, applied_ta_ids)
+        ta_meta = {"ta_applied": applied_ta_ids}
+        if ta_warning:
+            ta_meta["ta_warning"] = ta_warning
 
         if version == "2":
-            export_codes = list(field_codes)
-            if use_ta and applied_ta_ids:
-                for ta_id in applied_ta_ids:
-                    if ta_id not in export_codes:
-                        export_codes.append(ta_id)
             rows_data = _candles_to_field_rows(candles, export_codes)
             header = "|".join(export_codes)
             rows = [header]
@@ -2765,20 +2812,22 @@ def public_fp_historical():
             return _cors(resp)
 
         if fields_param:
-            data = _candles_to_field_rows(candles, field_codes)
-            return _cors(make_response(jsonify({
+            data = _candles_to_field_rows(candles, export_codes)
+            payload = {
                 "success": True, "symbol": resolved_symbol, "interval": interval,
-                "from": from_date, "to": to_date, "fields": field_codes,
-                "ta_applied": applied_ta_ids,
+                "from": from_date, "to": to_date, "fields": export_codes,
                 "count": len(data), "data": data,
-            }), 200))
+            }
+            payload.update(ta_meta)
+            return _cors(make_response(jsonify(payload), 200))
         else:
-            return _cors(make_response(jsonify({
+            payload = {
                 "success": True, "symbol": resolved_symbol, "scrip_code": scrip_code,
                 "exch": exch, "exch_type": exch_type, "interval": interval,
-                "ta_applied": applied_ta_ids,
                 "from": from_date, "to": to_date, "count": len(candles), "candles": candles,
-            }), 200))
+            }
+            payload.update(ta_meta)
+            return _cors(make_response(jsonify(payload), 200))
     except Exception as e:
         return _cors(make_response(jsonify({"error": str(e)}), 500))
 

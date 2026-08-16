@@ -9,29 +9,39 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#0d1117" />
   <meta name="format-detection" content="telephone=no" />
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
   <title>TraderApp</title>
   <script>
     /* Apply saved theme before first paint to avoid a flash */
     document.documentElement.setAttribute("data-theme",
       localStorage.getItem("app_theme") === "light" ? "light" : "dark");
   </script>
-  <link rel="stylesheet" href="/static/css/style.css?v=yf7" />
+  <link rel="stylesheet" href="/static/css/style.css?v=yf18" />
 </head>
 <body>
 
 <header>
-  <div class="logo">📈 TraderApp</div>
-  <span class="phase-badge">Phase 1</span>
+  <div class="header-brand">
+    <div class="logo">
+      <img class="logo-mark" src="/static/logo.png" alt="TraderApp" />
+      <span class="logo-text">Trader<span class="logo-accent">App</span></span>
+    </div>
+    <span class="phase-badge">Phase 1</span>
+  </div>
   <nav class="topnav" id="sidebar">
     <ul class="nav-list">
       <li>
         <a class="nav-item active" data-page="home" href="#">
-          <span class="nav-icon">🏠</span> Home
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>
+          </span> Home
         </a>
       </li>
       <li class="nav-accordion" id="nav-analysis">
         <button type="button" class="nav-item nav-parent" id="nav-analysis-btn" aria-expanded="false">
-          Analysis
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><rect x="6" y="13" width="3" height="7" rx="0.6"/><rect x="11" y="9" width="3" height="11" rx="0.6"/><rect x="16" y="5" width="3" height="15" rx="0.6"/></svg>
+          </span> Analysis
           <span class="nav-chevron">▾</span>
         </button>
         <div class="nav-mega">
@@ -60,7 +70,9 @@
       </li>
       <li>
         <a class="nav-item" data-page="connect-broker" href="#">
-          <span class="nav-icon">🔌</span> Connect to Broker
+          <span class="nav-icon" aria-hidden="true">
+            <svg class="icon-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/></svg>
+          </span> Connect<span class="nav-label-rest"> to Broker</span>
         </a>
       </li>
       <li>
@@ -155,6 +167,11 @@
                   </button>
                   <div class="chart-pop layout-pop hidden" id="split-pop"></div>
                 </div>
+                <button type="button" class="chart-tool-btn chart-icon-btn" id="btn-watchlist" title="Watchlist" aria-label="Watchlist" aria-expanded="false" aria-controls="chart-watchlist">
+                  <svg class="chart-toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M3 3.4h10M3 8h10M3 12.6h7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                  </svg>
+                </button>
               </div>
             </div>
             <div id="chart-meta" class="chart-meta hidden">
@@ -220,6 +237,39 @@
               <button type="button" class="chart-replay-exit" id="replay-exit">Exit</button>
             </div>
           </div>
+          <aside class="chart-watchlist" id="chart-watchlist" aria-label="Watchlist">
+            <button type="button" class="wl-edge-toggle" id="btn-wl-collapse" title="Collapse watchlist" aria-label="Collapse watchlist">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="wl-head">
+              <div class="wl-title-wrap" id="wl-title-wrap">
+                <button type="button" class="wl-title-btn" id="btn-wl-lists" title="Switch watchlist" aria-haspopup="true" aria-expanded="false">
+                  <svg class="wl-flag" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.4h10M3 8h10M3 12.6h7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                  <span id="wl-title-name">Watchlist</span>
+                  <svg class="wl-title-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.4 4.2L6 8l3.6-3.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <div class="wl-lists-pop hidden" id="wl-lists-pop"></div>
+              </div>
+              <div class="wl-head-actions">
+                <div class="wl-add-wrap">
+                  <button type="button" class="wl-icon-btn" id="btn-wl-add" title="Add instrument">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.2v9.6M3.2 8h9.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                  </button>
+                  <div class="wl-add-pop hidden" id="wl-add-pop">
+                    <input type="text" id="wl-add-input" placeholder="Search symbol…" autocomplete="off" />
+                    <ul class="search-dropdown hidden" id="wl-add-dropdown"></ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="wl-cols" aria-hidden="true">
+              <span>Symbol</span>
+              <span>Last</span>
+              <span>Chg</span>
+              <span>Chg%</span>
+            </div>
+            <div class="wl-list" id="wl-list"></div>
+          </aside>
         </div>
       </section>
 
@@ -422,7 +472,7 @@
             </div>
             <div class="btn-row">
               <button type="button" class="btn-primary" id="save-cred-btn">💾 Save Credentials</button>
-              <button type="button" class="btn-success" id="connect-btn">🔌 Connect</button>
+              <button type="button" class="btn-success" id="connect-btn"><svg class="icon-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/></svg> Connect</button>
               <button type="button" class="btn-danger" id="disconnect-btn">⛔ Disconnect</button>
             </div>
           </form>
@@ -430,9 +480,14 @@
           <div id="message-box" class="message-box hidden"></div>
 
           <div class="ti-config" data-broker="dhan">
-            <button type="button" class="ti-config-toggle">
-              <span>TimeInterval configuration</span>
-              <span class="ta-collapse-btn">&#8964;</span>
+            <button type="button" class="ti-config-toggle" aria-expanded="false">
+              <span class="settings-card-icon ti-config-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 8.4v4.1l2.6 1.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span class="ti-config-label">TimeInterval configuration</span>
+              <span class="ta-collapse-btn" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="16" height="16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
             </button>
             <div class="ti-config-body hidden">
               <p class="field-hint">Set lookback days for each chart interval. Add Weekly / Yearly by pointing at a native candle (e.g. 1D) and choosing how to combine it.</p>
@@ -569,7 +624,7 @@
             </div>
             <div class="btn-row">
               <button type="button" class="btn-primary" id="fp-save-cred-btn">💾 Save Credentials</button>
-              <button type="button" class="btn-success" id="fp-connect-btn">🔌 Connect</button>
+              <button type="button" class="btn-success" id="fp-connect-btn"><svg class="icon-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/></svg> Connect</button>
               <button type="button" class="btn-danger" id="fp-disconnect-btn">⛔ Disconnect</button>
             </div>
           </form>
@@ -577,9 +632,14 @@
           <div id="fp-message-box" class="message-box hidden"></div>
 
           <div class="ti-config" data-broker="5paisa">
-            <button type="button" class="ti-config-toggle">
-              <span>TimeInterval configuration</span>
-              <span class="ta-collapse-btn">&#8964;</span>
+            <button type="button" class="ti-config-toggle" aria-expanded="false">
+              <span class="settings-card-icon ti-config-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 8.4v4.1l2.6 1.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span class="ti-config-label">TimeInterval configuration</span>
+              <span class="ta-collapse-btn" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="16" height="16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
             </button>
             <div class="ti-config-body hidden">
               <p class="field-hint">Set lookback days for each chart interval. Add Weekly / Yearly by pointing at a native candle (e.g. 1D) and choosing how to combine it.</p>
@@ -646,16 +706,21 @@
             </div>
             <div class="btn-row">
               <button type="button" class="btn-primary" id="yahoo-save-btn">💾 Save Base URL</button>
-              <button type="button" class="btn-success" id="yahoo-connect-btn">🔌 Connect</button>
+              <button type="button" class="btn-success" id="yahoo-connect-btn"><svg class="icon-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/></svg> Connect</button>
             </div>
           </form>
 
           <div id="yahoo-message-box" class="message-box hidden"></div>
 
           <div class="ti-config" data-broker="yahoo">
-            <button type="button" class="ti-config-toggle">
-              <span>TimeInterval configuration</span>
-              <span class="ta-collapse-btn">&#8964;</span>
+            <button type="button" class="ti-config-toggle" aria-expanded="false">
+              <span class="settings-card-icon ti-config-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 8.4v4.1l2.6 1.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span class="ti-config-label">TimeInterval configuration</span>
+              <span class="ta-collapse-btn" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="16" height="16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
             </button>
             <div class="ti-config-body hidden">
               <p class="field-hint">Set lookback days for each chart interval. Yahoo also has native 1W / 1M. Or add Weekly from 1D candles if you prefer combining daily bars.</p>
@@ -744,10 +809,28 @@
 
     <!-- ══ Page: Settings ══ -->
     <div class="page" id="page-settings">
-      <section class="card">
+      <div class="settings-hero">
+        <div class="settings-hero-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M4.2 12.9l1.7.3c.2.7.5 1.3.9 1.9l-1 1.5 1.6 1.6 1.5-1c.6.4 1.2.7 1.9.9l.3 1.7h2.2l.3-1.7c.7-.2 1.3-.5 1.9-.9l1.5 1 1.6-1.6-1-1.5c.4-.6.7-1.2.9-1.9l1.7-.3v-2.2l-1.7-.3c-.2-.7-.5-1.3-.9-1.9l1-1.5-1.6-1.6-1.5 1c-.6-.4-1.2-.7-1.9-.9L13.3 3h-2.2l-.3 1.7c-.7.2-1.3.5-1.9.9l-1.5-1-1.6 1.6 1 1.5c-.4.6-.7 1.2-.9 1.9l-1.7.3v2.2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        </div>
+        <div>
+          <h1 class="settings-hero-title">Settings</h1>
+          <p class="settings-hero-copy">Brokers, market filters, option columns, API access, and local data.</p>
+        </div>
+      </div>
+
+      <section class="card settings-card">
         <div class="settings-card-header">
-          <h2>Settings</h2>
-          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+          <span class="settings-card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 8.5h10.5M5 12h14M5 15.5h8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="17.5" cy="8.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="9.5" cy="15.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+          </span>
+          <div class="settings-card-titles">
+            <h2>Brokers</h2>
+            <p class="settings-card-sub">Show or hide sources on Home and Connect</p>
+          </div>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse" aria-label="Expand Brokers">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </div>
         <div class="settings-card-body hidden">
         <p class="settings-hint">Enable or disable brokers. Disabled brokers are hidden from the Home chart toolbar and Connect to Broker tabs.</p>
@@ -755,7 +838,7 @@
         <div class="settings-group">
           <div class="settings-row">
             <div class="settings-label">
-              <span class="settings-broker-name">Dhan</span>
+              <span class="settings-broker-name"><span class="broker-mark broker-mark-dhan">D</span>Dhan</span>
               <span class="settings-broker-desc">Dhan broker connectivity &amp; charting</span>
             </div>
             <label class="toggle-switch">
@@ -765,7 +848,7 @@
           </div>
           <div class="settings-row">
             <div class="settings-label">
-              <span class="settings-broker-name">5Paisa</span>
+              <span class="settings-broker-name"><span class="broker-mark broker-mark-fp">5</span>5Paisa</span>
               <span class="settings-broker-desc">5Paisa broker connectivity &amp; charting</span>
             </div>
             <label class="toggle-switch">
@@ -775,7 +858,7 @@
           </div>
           <div class="settings-row">
             <div class="settings-label">
-              <span class="settings-broker-name">Yahoo Finance</span>
+              <span class="settings-broker-name"><span class="broker-mark broker-mark-yahoo">Y</span>Yahoo Finance</span>
               <span class="settings-broker-desc">Yahoo Finance charts via Base URL (Yahoo Stock List.csv)</span>
             </div>
             <label class="toggle-switch">
@@ -785,7 +868,7 @@
           </div>
           <div class="settings-row">
             <div class="settings-label">
-              <span class="settings-broker-name">Excel</span>
+              <span class="settings-broker-name"><span class="broker-mark broker-mark-excel">X</span>Excel</span>
               <span class="settings-broker-desc">Live charts from workbooks currently open in Excel</span>
             </div>
             <label class="toggle-switch">
@@ -797,10 +880,18 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card settings-card">
         <div class="settings-card-header">
-          <h2>Enable Market</h2>
-          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+          <span class="settings-card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M4.5 7.5h15M4.5 12h15M4.5 16.5h15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M8 5.8v3.4M12.5 10.3v3.4M16.5 14.8v3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </span>
+          <div class="settings-card-titles">
+            <h2>Enable Market</h2>
+            <p class="settings-card-sub">Filter Instrument.csv for chart search</p>
+          </div>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse" aria-label="Expand Enable Market">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </div>
         <div class="settings-card-body hidden">
         <p class="settings-hint">Filter Instrument.csv for chart search. A row must match Exch, ExchType, and ScripType (AND). Equity includes cash XX rows; CE/PE Option covers both call and put.</p>
@@ -891,10 +982,18 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card settings-card">
         <div class="settings-card-header">
-          <h2>Option Chain</h2>
-          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+          <span class="settings-card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 6.5h14v11H5z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 10.5h14M12 10.5v7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8.2 14.2h2.2M13.6 14.2h2.2M8.2 16.4h2.2M13.6 16.4h2.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </span>
+          <div class="settings-card-titles">
+            <h2>Option Chain</h2>
+            <p class="settings-card-sub">Price and Greeks columns, order, and visibility</p>
+          </div>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse" aria-label="Expand Option Chain">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </div>
         <div class="settings-card-body hidden">
         <p class="settings-hint">Hide or show columns and reorder them for Price and Greeks views on the Option Chain page.</p>
@@ -923,10 +1022,18 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card settings-card">
         <div class="settings-card-header">
-          <h2>API Access</h2>
-          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+          <span class="settings-card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M7 8.5h10M7 12h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M5.5 5.5h13v13h-13z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15.2 14.2l2.8 2.8M18 17l.8.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </span>
+          <div class="settings-card-titles">
+            <h2>API Access</h2>
+            <p class="settings-card-sub">Public REST endpoints and a local API key</p>
+          </div>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse" aria-label="Expand API Access">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </div>
         <div class="settings-card-body hidden">
         <p class="settings-hint">Allow external applications to fetch data through TraderApp using a secret API key.</p>
@@ -949,11 +1056,16 @@
           <!-- Available Endpoints collapsible -->
           <div class="ta-section" id="ep-section">
             <div class="ta-header" id="ep-section-header">
+              <span class="settings-card-icon settings-sub-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M7 7.5h10M7 12h10M7 16.5h6.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              </span>
               <div class="ta-header-left">
                 <span class="ta-title">Available Endpoints</span>
                 <span class="ta-subtitle">No authentication required &mdash; just enable the toggle above</span>
               </div>
-              <button class="ta-collapse-btn" id="ep-collapse-btn" title="Expand / Collapse">&#8964;</button>
+              <button type="button" class="ta-collapse-btn" id="ep-collapse-btn" title="Expand / Collapse" aria-label="Expand Available Endpoints" aria-expanded="false">
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
             </div>
             <div id="ep-panel" class="ta-panel hidden">
               <div class="ep-panel-inner" id="api-endpoint-list"></div>
@@ -963,15 +1075,20 @@
           <!-- Technical Indicators Section -->
           <div class="ta-section">
             <div class="ta-header" id="ta-section-header">
+              <label class="toggle-switch" style="margin-right:2px;">
+                <input type="checkbox" id="setting-enable-ta" />
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="settings-card-icon settings-sub-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M5 16.5l4.2-4.2 2.8 2.8L19 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.2 8H19v3.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
               <div class="ta-header-left">
-                <label class="toggle-switch" style="margin-right:12px;">
-                  <input type="checkbox" id="setting-enable-ta" />
-                  <span class="toggle-slider"></span>
-                </label>
                 <span class="ta-title">Technical Indicators</span>
-                <span class="ta-subtitle">Append built-in and custom line indicators when <code>TA=true</code></span>
+                <span class="ta-subtitle">Saved indicators are appended to historical/chart when <code>TA=true</code></span>
               </div>
-              <button class="ta-collapse-btn" id="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+              <button type="button" class="ta-collapse-btn" id="ta-collapse-btn" title="Expand / Collapse" aria-label="Expand Technical Indicators" aria-expanded="false">
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
             </div>
             <div id="ta-panel" class="ta-panel hidden">
               <div class="ta-panel-inner">
@@ -980,7 +1097,7 @@
                 </div>
                 <div class="ta-add-row">
                   <select id="ta-type-select" class="ta-select">
-                    <!-- options injected by JS from /public/api/ta/catalog -->
+                    <!-- options injected by JS from /api/ta/catalog -->
                   </select>
                   <button class="btn-secondary ta-add-btn" id="ta-add-btn">+ Add</button>
                 </div>
@@ -989,7 +1106,7 @@
                   <span id="ta-save-msg" class="ta-save-msg"></span>
                 </div>
                 <div class="ta-usage-note">
-                  Usage: append <code>TA=true</code> to any historical API call.<br>
+                  Usage: append <code>TA=true</code> to any historical API call (the Settings toggle is not required).<br>
                   Custom line indicators (e.g. Smoothing) appear in the list below; each line is a separate field such as <code>smoothing_ce1</code> &hellip; <code>smoothing_ce4</code>.<br>
                   Example: <code id="ta-example-url">/public/api/5paisa/historical?symbol=RELIANCE&amp;interval=15&amp;TA=true</code>
                 </div>
@@ -999,10 +1116,18 @@
         </div>
         </div>
       </section>
-      <section class="card">
+      <section class="card settings-card">
         <div class="settings-card-header">
-          <h2>Live Chart</h2>
-          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+          <span class="settings-card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 12.5h14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 5.5v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M8.2 11.2L12 14.8l3.8-3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 18.5h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </span>
+          <div class="settings-card-titles">
+            <h2>Live Chart</h2>
+            <p class="settings-card-sub">Auto-refresh interval when a broker has no live push</p>
+          </div>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse" aria-label="Expand Live Chart">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </div>
         <div class="settings-card-body hidden">
         <p class="settings-hint">Automatically refresh the chart at a fixed interval. Set to 0 to disable. Useful for brokers without live push data (e.g. Dhan).</p>
@@ -1032,10 +1157,18 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card settings-card">
         <div class="settings-card-header">
-          <h2>Data &amp; Instruments</h2>
-          <button type="button" class="ta-collapse-btn" title="Expand / Collapse">&#8964;</button>
+          <span class="settings-card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M5.5 7.2h9.2l3.8 3.6V18.5H5.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14.6 7.2v3.7h3.7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8.5 14.2h7M8.5 16.6h4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </span>
+          <div class="settings-card-titles">
+            <h2>Data &amp; Instruments</h2>
+            <p class="settings-card-sub">Scrip master file and DataFeed folder</p>
+          </div>
+          <button type="button" class="ta-collapse-btn" title="Expand / Collapse" aria-label="Expand Data and Instruments">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </div>
         <div class="settings-card-body hidden">
         <p class="settings-hint">Instrument.csv stays in the app folder. Price data is saved under <code>datafeed/</code>. Click Update to re-download Instrument.csv.</p>
@@ -1807,8 +1940,8 @@ window._brokerEnabled = {
 </script>
 <script src="/static/js/klinecharts.min.js"></script>
 <script src="/static/js/socket.io.min.js"></script>
-<script src="/static/js/home_chart.js?v=xl20"></script>
-<script src="/static/js/main.js?v=xl3"></script>
+<script src="/static/js/home_chart.js?v=xl29"></script>
+<script src="/static/js/main.js?v=xl7"></script>
 <script src="/static/js/correlation_density.js"></script>
 <script src="/static/js/pair_detail.js?v=pd-calc5"></script>
 <script src="/static/js/option_chain.js"></script>
