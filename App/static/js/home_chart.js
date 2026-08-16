@@ -3603,6 +3603,57 @@
       }
     });
     klinecharts.registerOverlay({
+      name: "pyMarker",
+      totalStep: 2,
+      needDefaultPointFigure: false,
+      createPointFigures: function (params) {
+        var ext = (params.overlay && params.overlay.extendData) || {};
+        var markers = ext.markers || [];
+        var fontSize = Number(ext.fontSize) || 10;
+        var xAxis = params.xAxis;
+        var yAxis = params.yAxis;
+        if (!xAxis || !yAxis || !markers.length) return [];
+        var owner = overlayOwnerChart(params.overlay);
+        var list = chartDataListOf(owner);
+        if (!list.length) return [];
+        var range = visibleBarRangeOf(owner, list.length);
+        var figs = [];
+        var i, m, ts, idx, v, pt, isTop, y;
+        for (i = 0; i < markers.length; i++) {
+          m = markers[i];
+          if (!m) continue;
+          ts = m.time != null ? Number(m.time) : null;
+          idx = timestampIndex(ts, list);
+          if (idx < range.from - 1 || idx > range.to + 1) continue;
+          v = Number(m.value);
+          if (!isFinite(v)) continue;
+          pt = panePoint(ts, v, idx, xAxis, yAxis, owner);
+          if (!pt) continue;
+          isTop = m.position === "top";
+          y = isTop ? pt.y - 4 : pt.y + 4;
+          figs.push({
+            type: "text",
+            ignoreEvent: true,
+            attrs: { x: pt.x, y: y, text: String(m.text || ""), align: "center", baseline: isTop ? "bottom" : "top" },
+            styles: {
+              color: m.color || "#ef5350",
+              size: fontSize,
+              weight: "bold",
+              family: "Segoe UI, Arial, sans-serif",
+              backgroundColor: "rgba(0,0,0,0)",
+              borderColor: "rgba(0,0,0,0)",
+              borderSize: 0,
+              paddingLeft: 0,
+              paddingRight: 0,
+              paddingTop: 0,
+              paddingBottom: 0
+            }
+          });
+        }
+        return figs;
+      }
+    });
+    klinecharts.registerOverlay({
       name: "excelLine",
       totalStep: 3,
       needDefaultPointFigure: false,
@@ -3798,7 +3849,7 @@
     overlayIds.forEach(function (id) {
       var o = chart.getOverlayById(id);
       if (!o || !o.points || !o.points.length) return;
-      if (o.name === "pyZone" || o.name === "pySmooth" || o.name === "excelLine" || o.name === "excelLabel") return;
+      if (o.name === "pyZone" || o.name === "pySmooth" || o.name === "pyMarker" || o.name === "excelLine" || o.name === "excelLabel") return;
       var points = normalizeSavedPoints(o.name, o.points);
       if (!points.length) return;
       saved.push({
@@ -3848,7 +3899,7 @@
     selectedOverlayId = null;
     if (!chart || !saved || !saved.length) return;
     saved.forEach(function (item) {
-      if (!item || !item.name || !item.points || item.name === "pyZone" || item.name === "pySmooth" || item.name === "excelLine" || item.name === "excelLabel") return;
+      if (!item || !item.name || !item.points || item.name === "pyZone" || item.name === "pySmooth" || item.name === "pyMarker" || item.name === "excelLine" || item.name === "excelLabel") return;
       var spec = Object.assign({
         name: item.name,
         points: normalizeSavedPoints(item.name, item.points)
@@ -4658,6 +4709,10 @@
         vals.push(!!(inp && inp.checked));
         return;
       }
+      if (p.type === "color") {
+        vals.push(inp ? inp.value : p.def);
+        return;
+      }
       var n = inp ? parseFloat(inp.value) : p.def;
       if (!isFinite(n)) n = p.def;
       var min = p.min != null ? p.min : 1;
@@ -4703,8 +4758,13 @@
     var box = document.getElementById("ind-settings-box");
     if (resetBtn) resetBtn.classList.add("hidden");
     if (box) {
-      box.classList.remove("chart-modal-wide");
-      box.style.maxWidth = "400px";
+      if (isMarkersMeta(spec)) {
+        box.classList.add("chart-modal-wide");
+        box.style.maxWidth = "640px";
+      } else {
+        box.classList.remove("chart-modal-wide");
+        box.style.maxWidth = "400px";
+      }
     }
     if (title) title.textContent = (isEdit ? "Edit " : "Add ") + name;
     if (isSmoothingMeta(spec)) {
@@ -4740,6 +4800,10 @@
             return '<div class="ind-param-row ind-param-toggle"><span>' + p.label + "</span>" +
               '<label class="toggle-switch"><input type="checkbox" id="ind-param-' + i + '"' +
               (on ? " checked" : "") + ' /><span class="toggle-slider"></span></label></div>';
+          }
+          if (p.type === "color") {
+            return '<div class="ind-param-row"><label for="ind-param-' + i + '">' + p.label + '</label>' +
+              '<input type="color" id="ind-param-' + i + '" value="' + val + '" /></div>';
           }
           var min = p.min != null ? p.min : 1;
           var max = p.max != null ? p.max : 500;
@@ -4903,6 +4967,10 @@
 
   function isSmoothingMeta(meta) {
     return !!(meta && (meta.ui === "smoothing" || meta.id === "smoothing"));
+  }
+
+  function isMarkersMeta(meta) {
+    return !!(meta && meta.draw === "markers");
   }
 
   function cloneJson(v) {
@@ -5279,7 +5347,7 @@
   function openPyIndSettingsAdd(id) {
     var meta = pyMeta(id);
     if (!meta) return;
-    if (!isSmoothingMeta(meta)) {
+    if (!isSmoothingMeta(meta) && !isMarkersMeta(meta)) {
       applyPythonIndicator(id);
       return;
     }
@@ -5294,6 +5362,10 @@
     _settingsPyMeta = meta;
     editingIndIdx = null;
     pendingIndName = id;
+    if (isMarkersMeta(meta)) {
+      fillIndSettingsModal(meta.name, pyDefaultParams(meta), "#58a6ff", false, meta);
+      return;
+    }
     fillIndSettingsModal(meta.name, pyLastOrFactory(meta), firstSmoothColor(pyLastOrFactory(meta)), false, meta);
   }
 
@@ -5454,6 +5526,29 @@
     item.pyOverlayIds = ids;
   }
 
+  function drawPythonMarkers(item, data) {
+    if (!chart || !item) return;
+    removePythonOverlays(item);
+    if (item.visible === false) return;
+    var markers = (data && data.markers) || [];
+    if (!markers.length) return;
+    var list = chartDataList();
+    var t0 = list.length ? list[0].timestamp : 0;
+    var spec = {
+      name: "pyMarker",
+      groupId: pyGroupId(item),
+      lock: true,
+      points: [
+        { timestamp: t0, value: 0 },
+        { timestamp: t0, value: 0 }
+      ],
+      extendData: { markers: markers, fontSize: (data && data.font_size) || 10 }
+    };
+    var id = null;
+    try { id = chart.createOverlay(spec, "candle_pane"); } catch (_) {}
+    item.pyOverlayIds = id ? [id] : [];
+  }
+
   function hasPythonIndicators() {
     return activeIndicators.some(function (item) {
       return item && item.kind === "python" && item.visible !== false;
@@ -5542,7 +5637,8 @@
       withSlot(slotIdx, function () {
         if (!chart) return;
         item.pyStats = data.stats || {};
-        drawPythonZones(item, data.zones || []);
+        if (isMarkersMeta(meta)) drawPythonMarkers(item, data);
+        else drawPythonZones(item, data.zones || []);
         if (slotIdx === activeSlot) updateChartLegendValues();
       });
     }).catch(function () {});
@@ -5776,6 +5872,13 @@
         }).filter(function (v) { return v.value != null && isFinite(Number(v.value)); });
       }
       var st = item.pyStats || {};
+      if (st.bullish != null || st.bearish != null) {
+        return [
+          { title: "Bull", value: st.bullish },
+          { title: "Bear", value: st.bearish },
+          { title: "Total", value: st.total }
+        ];
+      }
       return [
         { title: "S", value: st.supply },
         { title: "D", value: st.demand },
