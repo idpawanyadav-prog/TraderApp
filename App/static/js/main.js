@@ -861,8 +861,6 @@ document.addEventListener('DOMContentLoaded', function() {
       var panel = document.getElementById('panel-' + broker);
       if (panel) panel.classList.add('hidden');
     }
-    var cbtn = document.querySelector('.cbrok-btn[data-broker="' + broker + '"]');
-    if (cbtn) cbtn.style.display = enabled ? '' : 'none';
     if (window._chartSetBrokerEnabled) window._chartSetBrokerEnabled(broker, enabled);
   }
 

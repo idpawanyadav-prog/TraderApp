@@ -18,21 +18,21 @@ TraderApp is a Flask + Socket.IO trading dashboard. It connects to broker APIs (
 
 - Windows, macOS, or Linux
 - Python 3.10 or newer (including 3.14). Python 3.6 is not supported.
-- On Windows a local copy can be installed into `python314` with `install_python.bat`. On macOS run `mac/setup_mac.sh` or install from python.org.
+- On Windows a local copy can be installed into `python314` with `Win/install_python.bat`. On macOS run `mac/setup_mac.sh` or install from python.org.
 
 ## Quick Start (Windows)
 
 1. Open the project folder.
-2. Run `install_python.bat` if you do not already have Python 3.10+.
-3. Run `install_libs.bat` to install dependencies into `libs` (required after upgrading Python).
-4. Run `start_server.bat`.
+2. Run `Win\install_python.bat` if you do not already have Python 3.10+.
+3. Run `Win\install_libs.bat` to install dependencies into `App\libs` (required after upgrading Python).
+4. Run `Win\start_server.bat`.
 5. Open the URL shown in the terminal: http://127.0.0.1:5000/
 
 ## Quick Start (macOS / Linux)
 
 1. Open Terminal in the project folder.
 2. Run `./mac/setup_mac.sh` if you do not already have Python 3.10+ (installs via Homebrew on macOS).
-3. Run `./mac/install_libs.sh` to install dependencies into `libs`.
+3. Run `./mac/install_libs.sh` to install dependencies into `App/libs`.
 4. Run `./mac/start_server.sh`.
 
 ## Use from iPhone / iPad
@@ -71,20 +71,23 @@ Disabled until **API access** is turned on in Settings. Endpoints include:
 ## Project layout
 
 ```
-app.py                 Flask app, Socket.IO, routes
-broker/                Dhan, 5Paisa, Yahoo, Excel adapters
-analysis/              Correlation density, pair detail, stats helpers
-services/              Scans, market data, option chain, OI, GEX, intervals
-custom_indicators/     Drop-in Python indicators (META + compute)
-templates/             Web UI
-static/                CSS and JS
-libs/                  Bundled pip packages (same Python version as the runtime)
-datafeed/              Optional cached CSVs when save-to-datafeed is on
+App/                   Flask app and runtime files
+  app.py               Flask app, Socket.IO, routes
+  broker/              Dhan, 5Paisa, Yahoo, Excel adapters
+  analysis/            Correlation density, pair detail, stats helpers
+  services/            Scans, market data, option chain, OI, GEX, intervals
+  custom_indicators/   Drop-in Python indicators (META + compute)
+  templates/           Web UI
+  static/              CSS and JS
+  libs/                Bundled pip packages (same Python version as the runtime)
+  datafeed/            Optional cached CSVs when save-to-datafeed is on
+Win/                   Windows start and install scripts
+mac/                   macOS/Linux start and install scripts
 ```
 
 ## Notes
 
 - The Excel broker (`xlwings`) works on Windows and macOS. On macOS, Microsoft Excel for Mac must be installed; COM (`pywin32`) is used on Windows only.
-- The app uses the local `libs` folder for bundled Python packages. Install those packages with the same Python version that runs the app.
+- The app uses `App/libs` for bundled Python packages. Install those packages with the same Python version that runs the app.
 - An old `python36` folder can be deleted if you no longer need it.
 - Broker modules load best-effort: a broken or offline broker does not block the rest of the app from starting.

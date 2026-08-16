@@ -1,4 +1,4 @@
-# Vendored Python packages (reinstall with install_libs.bat)
+# Vendored Python packages (reinstall with Win/install_libs.bat)
 libs/
 
 # Local Python runtimes

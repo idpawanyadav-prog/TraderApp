@@ -63,14 +63,26 @@
   }
   var activeBroker = pickActiveBroker();
 
+  function brokerTabEnabled(id, en) {
+    en = en || {};
+    if (id === "yahoo" || id === "excel") return !!en[id];
+    return en[id] !== false;
+  }
+
   function syncChartBrokerTabs() {
     var en = window._brokerEnabled || {};
-    document.querySelectorAll(".cbrok-btn[data-broker]").forEach(function (btn) {
+    var btns = document.querySelectorAll(".cbrok-btn[data-broker]");
+    var enabledCount = 0;
+    btns.forEach(function (btn) {
+      if (brokerTabEnabled(btn.dataset.broker, en)) enabledCount++;
+    });
+    var showSwitcher = enabledCount > 1;
+    var wrap = document.getElementById("chart-broker-tabs");
+    if (wrap) wrap.style.display = showSwitcher ? "" : "none";
+    btns.forEach(function (btn) {
       var id = btn.dataset.broker;
-      var on = en[id] !== false;
-      if (id === "yahoo") on = !!en.yahoo;
-      if (id === "excel") on = !!en.excel;
-      btn.style.display = on ? "" : "none";
+      var on = brokerTabEnabled(id, en);
+      btn.style.display = showSwitcher && on ? "" : "none";
       btn.classList.toggle("active", id === activeBroker && on);
     });
   }
@@ -103,12 +115,14 @@
     var ids = {};
     rows.forEach(function (r) { ids[r.id] = 1; });
     if (!ids[activeInterval]) activeInterval = rows[0].id;
-    intervalGroup.innerHTML = rows.map(function (r) {
+    intervalGroup.innerHTML = rows.map(function (r, i) {
       var on = r.id === activeInterval ? " active" : "";
       var label = String(r.label || r.id).replace(/[&<>"]/g, function (c) {
         return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c];
       });
-      return "<button class=\"ivl-btn" + on + "\" data-ivl=\"" + String(r.id).replace(/"/g, "") + "\">" +
+      var tip = i < 9 ? ("Alt+" + (i + 1)) : (i === 9 ? "Alt+0" : "");
+      return "<button type=\"button\" class=\"ivl-btn" + on + "\" data-ivl=\"" +
+        String(r.id).replace(/"/g, "") + "\"" + (tip ? " title=\"" + tip + "\"" : "") + ">" +
         label + "</button>";
     }).join("");
   }
@@ -175,7 +189,7 @@
   };
 
   var OVERLAY_INDS = { MA: 1, EMA: 1, SMA: 1, BBI: 1, BOLL: 1, SAR: 1, AVP: 1, VWAP: 1, SuperTrend: 1, VOL: 1 };
-  var LOCAL_INDS = { VWAP: 1, SuperTrend: 1 };
+  var LOCAL_INDS = { VWAP: 1, SuperTrend: 1, MA: 1, EMA: 1, SMA: 1, BOLL: 1, BBI: 1 };
   var PANE_INDS = ["MACD", "KDJ", "RSI", "WR", "CCI", "DMI", "OBV", "ROC", "MTM", "AO", "BIAS", "TRIX", "DMA", "PSY", "VR", "EMV", "CR", "BRAR", "PVT"];
   var IND_SPECS = {
     MA:   { overlay: true,  csv: true, params: [{ label: "Lengths (candles)", def: "20" }] },
@@ -539,6 +553,7 @@
       histMore: true,
       histLoading: false,
       refreshing: false,
+      needsFit: false,
       refreshTimer: null,
       refreshInterval: 0,
       replay: { active: false, picking: false, playing: false, index: -1, startIndex: 0, speed: 1, timer: null, viewSnap: null }
@@ -1956,6 +1971,56 @@
     return _replay.viewSnap;
   }
 
+  function chartHasSize(el) {
+    el = el || chartContainer;
+    return !!(el && el.clientWidth >= 40 && el.clientHeight >= 40);
+  }
+
+  function waitForChartSize(el, timeoutMs) {
+    el = el || chartContainer;
+    timeoutMs = timeoutMs == null ? 1500 : timeoutMs;
+    return new Promise(function (resolve) {
+      if (chartHasSize(el)) {
+        resolve(true);
+        return;
+      }
+      var done = false;
+      var timer = null;
+      function finish(ok) {
+        if (done) return;
+        done = true;
+        if (timer) clearInterval(timer);
+        resolve(ok);
+      }
+      var start = Date.now();
+      timer = setInterval(function () {
+        if (chartHasSize(el)) finish(true);
+        else if (Date.now() - start > timeoutMs) finish(false);
+      }, 32);
+    });
+  }
+
+  function fitLoadedChart() {
+    if (!chart) return;
+    try { chart.resize(); } catch (_) {}
+    var list = [];
+    try { list = chart.getDataList() || []; } catch (_) {}
+    if (!list.length) return;
+    try { if (chart.setBarSpace) chart.setBarSpace(DEFAULT_BAR_SPACE); } catch (_) {}
+    try { if (chart.resetOffsetRightDistance) chart.resetOffsetRightDistance(); } catch (_) {}
+    try { if (chart.scrollToRealTime) chart.scrollToRealTime(); } catch (_) {}
+  }
+
+  function waitIndSeeds() {
+    return new Promise(function (resolve) {
+      var n = 0;
+      (function tick() {
+        if (!Object.keys(_indSeedQ).length || n++ > 40) resolve();
+        else setTimeout(tick, 16);
+      })();
+    });
+  }
+
   function applyChartData(bars, more, after) {
     if (!chart) {
       if (typeof after === "function") requestAnimationFrame(after);
@@ -2372,7 +2437,7 @@
   searchInput.addEventListener("input", function () {
     clearTimeout(searchTimer);
     var q = searchInput.value.trim();
-    if (activeBroker !== "excel" && q.length < 2) { dropdown.classList.add("hidden"); dropdown.innerHTML = ""; return; }
+    if (activeBroker !== "excel" && !q.length) { dropdown.classList.add("hidden"); dropdown.innerHTML = ""; return; }
     searchTimer = setTimeout(function () { fetchSuggestions(q); }, 250);
   });
   if (searchInput) searchInput.addEventListener("focus", function () {
@@ -2384,14 +2449,19 @@
     if (e.key === "ArrowDown") {
       e.preventDefault();
       if (!active) { items[0] && items[0].classList.add("active"); }
-      else { active.classList.remove("active"); var n = active.nextElementSibling; if (n) n.classList.add("active"); }
+      else { active.classList.remove("active"); var n = active.nextElementSibling; if (n) n.classList.add("active"); else items[0] && items[0].classList.add("active"); }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      if (active) { active.classList.remove("active"); var p = active.previousElementSibling; if (p) p.classList.add("active"); }
+      if (!active) { items[items.length - 1] && items[items.length - 1].classList.add("active"); }
+      else { active.classList.remove("active"); var p = active.previousElementSibling; if (p) p.classList.add("active"); else items[items.length - 1] && items[items.length - 1].classList.add("active"); }
     } else if (e.key === "Enter") {
-      if (active) active.click();
+      e.preventDefault();
+      if (dropdown.classList.contains("hidden")) return;
+      var pick = active || items[0];
+      if (pick) pick.click();
     } else if (e.key === "Escape") {
       dropdown.classList.add("hidden");
+      searchInput.blur();
     }
   });
   document.addEventListener("click", function (e) {
@@ -2436,14 +2506,14 @@
           }
           searchInput.value = sym + " \u2014 " + item.name;
           dropdown.classList.add("hidden");
-          if (layoutSync.symbol) {
-            Promise.resolve(loadChartData()).then(function () {
-              loadSyncedSlots(activeSlot);
-            });
-          }
+          searchInput.blur();
+          Promise.resolve(loadChartData()).then(function () {
+            if (layoutSync.symbol) loadSyncedSlots(activeSlot);
+          });
         });
         dropdown.appendChild(li);
       });
+      if (dropdown.firstElementChild) dropdown.firstElementChild.classList.add("active");
       dropdown.classList.remove("hidden");
     } catch (_) {}
   }
@@ -2561,7 +2631,14 @@
         if (!inst || myContainer._resizing) return;
         myContainer._resizing = true;
         try { inst.resize(); } finally {
-          requestAnimationFrame(function () { myContainer._resizing = false; });
+          requestAnimationFrame(function () {
+            myContainer._resizing = false;
+            var owner = chartSlots[mySlot];
+            if (owner && owner.needsFit && chartHasSize(myContainer) && owner.chart === inst) {
+              owner.needsFit = false;
+              withSlot(mySlot, function () { fitLoadedChart(); });
+            }
+          });
         }
       });
       myContainer._ro.observe(myContainer);
@@ -2591,7 +2668,15 @@
     if (chart) {
       try { chart.resize(); } catch (_) {}
     }
-    restoreChartView(snap);
+    var listLen = 0;
+    try { listLen = (chart && chart.getDataList && chart.getDataList()) || []; listLen = listLen.length; } catch (_) { listLen = 0; }
+    var vis = 0;
+    try {
+      var range = chart && chart.getVisibleRange && chart.getVisibleRange();
+      if (range && range.to != null && range.from != null) vis = Math.max(0, Number(range.to) - Number(range.from));
+    } catch (_) {}
+    if (listLen > 8 && vis < 3) fitLoadedChart();
+    else restoreChartView(snap);
     if (_replay.picking || _replay.active) updateReplayUi();
     refreshVisibleSlots();
   };
@@ -3867,7 +3952,156 @@
     return out;
   }
 
+  function calcMA(dataList, indicator) {
+    var params = (indicator && indicator.calcParams) || [];
+    var figures = (indicator && indicator.figures) || [];
+    var sums = [];
+    return (dataList || []).map(function (bar, i) {
+      var out = {};
+      var close = Number(bar.close);
+      params.forEach(function (period, idx) {
+        var p = Math.max(1, Math.round(Number(period) || 1));
+        sums[idx] = (sums[idx] || 0) + close;
+        if (i >= p - 1 && figures[idx]) {
+          out[figures[idx].key] = sums[idx] / p;
+          sums[idx] -= Number(dataList[i - (p - 1)].close);
+        }
+      });
+      return out;
+    });
+  }
+
+  function calcEMA(dataList, indicator) {
+    var params = (indicator && indicator.calcParams) || [];
+    var figures = (indicator && indicator.figures) || [];
+    var ema = [];
+    var sums = [];
+    return (dataList || []).map(function (bar, i) {
+      var out = {};
+      var close = Number(bar.close);
+      params.forEach(function (period, idx) {
+        var p = Math.max(1, Math.round(Number(period) || 1));
+        sums[idx] = (sums[idx] || 0) + close;
+        if (i >= p - 1 && figures[idx]) {
+          ema[idx] = i > p - 1
+            ? (2 * close + (p - 1) * ema[idx]) / (p + 1)
+            : sums[idx] / p;
+          out[figures[idx].key] = ema[idx];
+        }
+      });
+      return out;
+    });
+  }
+
+  function calcSMA(dataList, indicator) {
+    var params = (indicator && indicator.calcParams) || [12, 2];
+    var period = Math.max(1, Math.round(Number(params[0]) || 12));
+    var weight = Number(params[1]);
+    if (!isFinite(weight)) weight = 2;
+    var sum = 0;
+    var sma = 0;
+    return (dataList || []).map(function (bar, i) {
+      var close = Number(bar.close);
+      sum += close;
+      if (i < period - 1) return {};
+      sma = i > period - 1
+        ? (close * weight + sma * (period - weight + 1)) / (period + 1)
+        : sum / period;
+      return { sma: sma };
+    });
+  }
+
+  function calcBOLL(dataList, indicator) {
+    var params = (indicator && indicator.calcParams) || [20, 2];
+    var period = Math.max(2, Math.round(Number(params[0]) || 20));
+    var mult = Number(params[1]);
+    if (!isFinite(mult) || mult <= 0) mult = 2;
+    var sum = 0;
+    return (dataList || []).map(function (bar, i) {
+      var close = Number(bar.close);
+      sum += close;
+      if (i < period - 1) return {};
+      var mid = sum / period;
+      var slice = dataList.slice(i - (period - 1), i + 1);
+      var variance = 0;
+      slice.forEach(function (b) {
+        var d = Number(b.close) - mid;
+        variance += d * d;
+      });
+      var sd = Math.sqrt(Math.abs(variance) / period);
+      sum -= Number(dataList[i - (period - 1)].close);
+      return { mid: mid, up: mid + mult * sd, dn: mid - mult * sd };
+    });
+  }
+
+  function calcBBI(dataList, indicator) {
+    var params = (indicator && indicator.calcParams) || [3, 6, 12, 24];
+    var sums = [];
+    var mas = [];
+    var maxP = 1;
+    params.forEach(function (p) {
+      maxP = Math.max(maxP, Math.round(Number(p) || 1));
+    });
+    return (dataList || []).map(function (bar, i) {
+      var close = Number(bar.close);
+      params.forEach(function (period, idx) {
+        var p = Math.max(1, Math.round(Number(period) || 1));
+        sums[idx] = (sums[idx] || 0) + close;
+        if (i >= p - 1) {
+          mas[idx] = sums[idx] / p;
+          sums[idx] -= Number(dataList[i - (p - 1)].close);
+        }
+      });
+      if (i < maxP - 1) return {};
+      var total = 0;
+      mas.forEach(function (v) { total += v; });
+      return { bbi: total / Math.max(1, params.length) };
+    });
+  }
+
   function localIndDef(baseName, uniqueName) {
+    if (baseName === "MA" || baseName === "EMA") {
+      var prefix = baseName === "EMA" ? "ema" : "ma";
+      return {
+        name: uniqueName,
+        shortName: baseName,
+        series: "price",
+        precision: 2,
+        shouldOhlc: true,
+        calcParams: [20],
+        figures: [{ key: prefix + "1", title: baseName + "20: ", type: "line" }],
+        regenerateFigures: function (params) {
+          return (params || []).map(function (p, i) {
+            return { key: prefix + (i + 1), title: baseName + p + ": ", type: "line" };
+          });
+        },
+        calc: baseName === "EMA" ? calcEMA : calcMA
+      };
+    }
+    if (baseName === "SMA") {
+      return {
+        name: uniqueName, shortName: "SMA", series: "price", precision: 2, shouldOhlc: true,
+        calcParams: [12, 2], figures: [{ key: "sma", title: "SMA: ", type: "line" }], calc: calcSMA
+      };
+    }
+    if (baseName === "BOLL") {
+      return {
+        name: uniqueName, shortName: "BOLL", series: "price", precision: 2, shouldOhlc: true,
+        calcParams: [20, 2],
+        figures: [
+          { key: "up", title: "UP: ", type: "line" },
+          { key: "mid", title: "MID: ", type: "line" },
+          { key: "dn", title: "DN: ", type: "line" }
+        ],
+        calc: calcBOLL
+      };
+    }
+    if (baseName === "BBI") {
+      return {
+        name: uniqueName, shortName: "BBI", series: "price", precision: 2, shouldOhlc: true,
+        calcParams: [3, 6, 12, 24], figures: [{ key: "bbi", title: "BBI: ", type: "line" }], calc: calcBBI
+      };
+    }
     if (baseName === "VWAP") {
       return {
         name: uniqueName,
@@ -3913,7 +4147,7 @@
   function snapshotIndTemplate(inst) {
     return {
       shortName: inst.shortName,
-      series: inst.series,
+      series: inst.series === "volume" ? "volume" : "price",
       calcParams: (inst.calcParams || []).slice(),
       figures: inst.figures,
       precision: inst.precision,
@@ -3927,27 +4161,47 @@
   }
 
   function withIndTemplate(baseName, fn) {
-    if (!chart) { fn(null); return; }
     if (_indTemplates[baseName]) { fn(_indTemplates[baseName]); return; }
+    if (!chart) { fn(null); return; }
     if (!_indSeedQ[baseName]) {
       _indSeedQ[baseName] = [];
-      var gen = _chartGen;
+      var seedChart = chart;
       var paneId = null;
-      try { paneId = chart.createIndicator(baseName, false, { height: 1 }); } catch (_) {}
-      setTimeout(function () {
+      var overlaySeed = false;
+      try {
+        paneId = seedChart.createIndicator(baseName, true, { id: "candle_pane" });
+        overlaySeed = !!paneId;
+      } catch (_) {}
+      if (!paneId) {
+        try { paneId = seedChart.createIndicator(baseName, false, { height: 8 }); } catch (_) {}
+      }
+      function finishSeed(inst) {
+        if (inst) _indTemplates[baseName] = snapshotIndTemplate(inst);
+        try {
+          if (overlaySeed) seedChart.removeIndicator("candle_pane", baseName);
+          else if (paneId) seedChart.removeIndicator(paneId, baseName);
+        } catch (_) {}
         var q = _indSeedQ[baseName] || [];
         delete _indSeedQ[baseName];
-        if (!chart || gen !== _chartGen) {
-          q.forEach(function (cb) { withIndTemplate(baseName, cb); });
+        var tmpl = _indTemplates[baseName] || null;
+        q.forEach(function (cb) {
+          try { cb(tmpl); } catch (_) {}
+        });
+      }
+      function trySnap(attempt) {
+        var inst = null;
+        try {
+          inst = seedChart.getIndicatorByPaneId(overlaySeed ? "candle_pane" : paneId, baseName);
+        } catch (_) {}
+        if (inst || attempt >= 2) {
+          finishSeed(inst);
           return;
         }
-        var inst = null;
-        try { inst = paneId ? chart.getIndicatorByPaneId(paneId, baseName) : null; } catch (_) {}
-        if (inst) _indTemplates[baseName] = snapshotIndTemplate(inst);
-        try { if (paneId) chart.removeIndicator(paneId, baseName); } catch (_) {}
-        var tmpl = _indTemplates[baseName] || null;
-        q.forEach(function (cb) { try { cb(tmpl); } catch (_) {} });
-      }, 120);
+        setTimeout(function () { trySnap(attempt + 1); }, 40);
+      }
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () { trySnap(0); });
+      });
     }
     _indSeedQ[baseName].push(fn);
   }
@@ -3961,7 +4215,7 @@
       klinecharts.registerIndicator({
         name: uniqueName,
         shortName: baseName,
-        series: tmpl.series,
+        series: (OVERLAY_INDS[baseName] && baseName !== "VOL") ? "price" : (tmpl.series || "price"),
         calcParams: (tmpl.calcParams || []).slice(),
         figures: tmpl.figures,
         precision: tmpl.precision,
@@ -4009,10 +4263,24 @@
     var overlay = !!item.overlay;
     var params = item.name === "VOL" ? [] : (item.calcParams || defaultParams(item.name)).slice();
     if (item.name === "VOL") item.calcParams = [];
+    var targetSlot = _curSlot;
+    var targetChart = chart;
+    function liveChart() {
+      var s = chartSlots[targetSlot];
+      return (s && s.chart) || targetChart;
+    }
+    function applyOverride() {
+      var prev = _curSlot;
+      if (chartSlots[targetSlot]) _useSlot(targetSlot);
+      try { overrideBuiltin(item); updateChartLegendValues(); }
+      finally {
+        if (chartSlots[prev]) _useSlot(prev);
+      }
+    }
     if (!overlay) {
       var paneId = null;
       try {
-        paneId = chart.createIndicator({
+        paneId = liveChart().createIndicator({
           name: item.name,
           shortName: formatIndLabel(item),
           calcParams: params
@@ -4020,7 +4288,7 @@
       } catch (_) {}
       item.indName = item.name;
       item.paneId = paneId || item.name;
-      setTimeout(function () { overrideBuiltin(item); updateChartLegendValues(); }, 80);
+      setTimeout(applyOverride, 80);
       return;
     }
     var uniqueName = uniqueIndName(item.name, item.uid);
@@ -4030,31 +4298,32 @@
       item.indName = localName;
       var localCreated = null;
       try {
-        localCreated = chart.createIndicator({
+        localCreated = liveChart().createIndicator({
           name: localName,
           shortName: formatIndLabel(item),
           calcParams: params
         }, true, { id: "candle_pane" });
       } catch (_) {}
       item.paneId = localCreated || "candle_pane";
-      setTimeout(function () { overrideBuiltin(item); updateChartLegendValues(); }, 80);
+      setTimeout(applyOverride, 80);
       return;
     }
     withIndTemplate(item.name, function (tmpl) {
-      if (!chart) return;
+      var c = liveChart();
+      if (!c) return;
       var indName = item.name;
       if (tmpl && registerUniqueInd(item.name, uniqueName, tmpl)) indName = uniqueName;
       item.indName = indName;
       var created = null;
       try {
-        created = chart.createIndicator({
+        created = c.createIndicator({
           name: indName,
           shortName: formatIndLabel(item),
           calcParams: params
         }, true, { id: "candle_pane" });
       } catch (_) {}
       item.paneId = created || "candle_pane";
-      setTimeout(function () { overrideBuiltin(item); updateChartLegendValues(); }, 80);
+      setTimeout(applyOverride, 80);
     });
   }
 
@@ -4098,6 +4367,7 @@
     });
     renderIndicatorPop();
     renderCustomPop();
+    renderChartLegend();
   }
 
   function addIndicator(name, skipPersist, preset) {
@@ -4772,6 +5042,7 @@
     fetch("/api/custom-indicators").then(function (r) { return r.json(); }).then(function (data) {
       _pyCatalog = (data && data.indicators) || [];
       renderCustomPop();
+      schedulePyRefresh(true);
     }).catch(function () { _pyCatalog = []; });
   }
 
@@ -6208,6 +6479,49 @@
     }
   });
 
+  function isQuickSearchKey(e) {
+    if (!e || e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (e.isComposing || e.key === "Process") return false;
+    if (e.key.length !== 1) return false;
+    return /[A-Za-z0-9.]/.test(e.key);
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (!isQuickSearchKey(e)) return;
+    if (!searchInput || document.activeElement === searchInput) return;
+    if (isTypingTarget(e.target)) return;
+    if (chartDrawModalOpen() || isIndPickerOpen()) return;
+    var homePage = document.getElementById("page-home");
+    if (!homePage || !homePage.classList.contains("active")) return;
+    if (_replay && _replay.picking) return;
+    e.preventDefault();
+    searchInput.focus();
+    searchInput.value = e.key;
+    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+  }, true);
+
+  function intervalShortcutIndex(e) {
+    if (!e || !e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return -1;
+    var code = e.code || "";
+    if (code === "Digit0" || code === "Numpad0") return 9;
+    var m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
+    return m ? parseInt(m[1], 10) - 1 : -1;
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.repeat) return;
+    var idx = intervalShortcutIndex(e);
+    if (idx < 0) return;
+    if (chartDrawModalOpen() || isIndPickerOpen()) return;
+    var homePage = document.getElementById("page-home");
+    if (!homePage || !homePage.classList.contains("active")) return;
+    if (!intervalGroup) return;
+    var btns = intervalGroup.querySelectorAll(".ivl-btn");
+    if (idx >= btns.length) return;
+    e.preventDefault();
+    btns[idx].click();
+  }, true);
+
   function dateIST(tsMs) {
     try {
       return new Intl.DateTimeFormat("en-CA", {
@@ -6560,9 +6874,19 @@
           _rawBars.length = 0;
           formatted.forEach(function (b) { _rawBars.push(b); });
           initChart();
-          chart.applyNewData(displaySeries(_rawBars), true);
+          if (chartSlots[loadSlot]) chartSlots[loadSlot].needsFit = true;
+          await waitForChartSize(chartContainer);
+          if (!chart) return;
+          await new Promise(function (resolve) {
+            applyChartData(displaySeries(_rawBars), _histMore, resolve);
+          });
           restoreIndicators();
+          await waitIndSeeds();
+          fitLoadedChart();
+          if (chartSlots[loadSlot]) chartSlots[loadSlot].needsFit = false;
           await restoreOverlays(loadSlot);
+          fitLoadedChart();
+          renderChartLegend();
         } finally {
           _overlaysSuspended = false;
         }
@@ -7275,6 +7599,11 @@
   try {
     registerLocalInd("VWAP", "VWAP");
     registerLocalInd("SuperTrend", "SuperTrend");
+    registerLocalInd("MA", "MA");
+    registerLocalInd("EMA", "EMA");
+    registerLocalInd("SMA", "SMA");
+    registerLocalInd("BOLL", "BOLL");
+    registerLocalInd("BBI", "BBI");
   } catch (_) {}
   loadCustomDefs().forEach(function (d) {
     try { registerCustom(d); } catch (_) {}

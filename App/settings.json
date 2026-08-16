@@ -199,7 +199,55 @@
     "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|M": [],
     "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|15": [],
     "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|D": [],
-    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|5": []
+    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|5": [],
+    "5paisa|N|RELIANCE|2885|1": [
+      {
+        "name": "rayLine",
+        "points": [
+          {
+            "timestamp": 1786685400000,
+            "value": 1158.7092889221558,
+            "dataIndex": 1056
+          },
+          {
+            "value": 1165.3945583832335,
+            "dataIndex": 1110
+          }
+        ],
+        "extendData": null
+      }
+    ],
+    "5paisa|N|INFY|1594|1": [],
+    "5paisa|N|INFY|1594|D": [],
+    "5paisa|N|RELIANCE|2885|D": [
+      {
+        "name": "rayLine",
+        "points": [
+          {
+            "timestamp": 1786685400000,
+            "value": 1158.7092889221558,
+            "dataIndex": 1056
+          },
+          {
+            "value": 1165.3945583832335,
+            "dataIndex": 1110
+          }
+        ],
+        "extendData": null
+      }
+    ],
+    "5paisa|N|TCS|11536|1": [],
+    "5paisa|N|TCS|11536|25": [],
+    "5paisa|N|TCS|11536|D": [],
+    "5paisa|N|NHPC|17400|1": [],
+    "5paisa|N|NHPC|17400|25": [],
+    "5paisa|N|NHPC|17400|D": [],
+    "5paisa|B|ITC|500875|1": [],
+    "5paisa|B|ITC|500875|25": [],
+    "5paisa|B|ITC|500875|D": [],
+    "5paisa|N|ITC|1660|1": [],
+    "5paisa|N|ITC|1660|25": [],
+    "5paisa|N|ITC|1660|D": []
   },
   "broker_intervals": {
     "dhan": [

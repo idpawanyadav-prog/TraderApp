@@ -4,8 +4,9 @@
 set -e
 
 MAC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$MAC_DIR/.." && pwd)"
-cd "$ROOT_DIR"
+PARENT_DIR="$(cd "$MAC_DIR/.." && pwd)"
+APP_DIR="$PARENT_DIR/App"
+cd "$APP_DIR"
 
 # shellcheck disable=SC1091
 source "$MAC_DIR/find_python.sh"

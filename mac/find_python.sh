@@ -5,12 +5,12 @@
 set -u
 
 MAC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$MAC_DIR/.." && pwd)"
+PARENT_DIR="$(cd "$MAC_DIR/.." && pwd)"
 export PYTHON=""
 
-# Homebrew (Apple Silicon / Intel)
+# Homebrew (Apple Silicon / Intel) and optional bundled runtime at repo root
 for brew_py in \
-  "$ROOT_DIR/python314/bin/python3" \
+  "$PARENT_DIR/python314/bin/python3" \
   /opt/homebrew/bin/python3 \
   /usr/local/bin/python3; do
   if [ -x "$brew_py" ]; then

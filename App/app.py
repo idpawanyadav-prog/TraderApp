@@ -104,8 +104,8 @@ try:
     socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 except ValueError as e:
     sys.exit(
-        "TraderApp failed to start Socket.IO (usually a missing package in .\\libs).\n"
-        "Run install_libs.bat, then start_server.bat again.\n"
+        "TraderApp failed to start Socket.IO (usually a missing package in App\\libs).\n"
+        "Run Win\\install_libs.bat, then Win\\start_server.bat again.\n"
         "Details: " + str(e)
     )
 
