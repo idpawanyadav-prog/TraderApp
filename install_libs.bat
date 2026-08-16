@@ -24,6 +24,12 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo [INFO] Finishing pywin32 so Excel COM works from .\libs\
+"%PYTHON%" -c "import vendor_libs; vendor_libs.finish_install()"
+if errorlevel 1 (
+    echo [WARN] pywin32 post-setup failed. Excel may not attach until you copy a working libs folder.
+)
+
 echo.
 echo Done! All libraries installed in .\libs\
 pause

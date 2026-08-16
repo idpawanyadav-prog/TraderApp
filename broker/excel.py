@@ -5,6 +5,7 @@ currently open in Microsoft Excel (COM / xlwings).
 from __future__ import annotations
 
 import math
+import os
 import re
 import sys
 import threading
@@ -34,6 +35,11 @@ class ExcelUnavailable(RuntimeError):
 
 def _require_xlwings():
     try:
+        import vendor_libs
+        vendor_libs.setup()
+    except Exception:
+        pass
+    try:
         import xlwings as xw  # noqa: F401
         return xw
     except Exception as e:
@@ -48,32 +54,119 @@ def _with_com(fn):
     # Windows: Excel is driven through COM, which needs pywin32/pythoncom.
     # macOS: xlwings talks to Excel for Mac via its own bridge (no COM),
     # so pythoncom initialization is skipped on non-Windows platforms.
-    if sys.platform == "win32":
-        try:
-            import pythoncom
-        except Exception as e:
-            raise ExcelUnavailable("pywin32/pythoncom is required to talk to Excel.") from e
+    if sys.platform != "win32":
+        with _lock:
+            return fn()
+    try:
+        import pythoncom
+    except Exception as e:
+        raise ExcelUnavailable("pywin32/pythoncom is required to talk to Excel.") from e
+    inited = False
+    try:
         pythoncom.CoInitialize()
-        try:
-            with _lock:
-                return fn()
-        finally:
+        inited = True
+    except Exception:
+        # Thread already has a COM apartment (common with Flask-SocketIO).
+        pass
+    try:
+        with _lock:
+            return fn()
+    finally:
+        if inited:
             try:
                 pythoncom.CoUninitialize()
             except Exception:
                 pass
-    with _lock:
-        return fn()
 
 
-def _active_app(xw):
+def _no_excel_message(details: list[str]) -> str:
+    bits = "64-bit" if sys.maxsize > 2**32 else "32-bit"
+    lines = [
+        "No open Excel instance found that Python can attach to.",
+        "Desktop Excel must be running with a workbook open (Enable Editing if Protected View).",
+        "Python is {}. Excel must be the same bitness. Do not mix Administrator / normal user.".format(bits),
+        "In Excel: File → Options → Advanced → uncheck “Ignore other applications that use Dynamic Data Exchange (DDE)”.",
+    ]
+    extra = [d for d in details if d]
+    if extra:
+        lines.append("Details: " + " | ".join(extra[:3]))
+    return " ".join(lines)
+
+
+def _app_pid(app) -> int | None:
     try:
-        app = xw.apps.active
+        return int(app.pid)
     except Exception:
-        app = None
-    if app is None:
-        raise ExcelUnavailable("No open Excel instance found. Open a workbook in Excel first.")
-    return app
+        return None
+
+
+def _wrap_com_app(xw, com):
+    """Attach xlwings to an already-running Excel.Application COM object."""
+    try:
+        return xw.apps.add(xl=com, add_book=False)
+    except TypeError:
+        return xw.App(impl=xw.apps.impl.add(xl=com, add_book=False))
+
+
+def _iter_excel_apps(xw):
+    """Yield every reachable Excel instance (HWND scan + Running Object Table)."""
+    seen = set()
+    errors = []
+
+    def _yield(app):
+        pid = _app_pid(app)
+        key = pid if pid is not None else id(app)
+        if key in seen:
+            return False
+        seen.add(key)
+        return True
+
+    try:
+        for app in xw.apps:
+            if _yield(app):
+                yield app
+    except Exception as e:
+        errors.append("xlwings: {}".format(e))
+
+    if sys.platform == "win32":
+        try:
+            import win32com.client
+            com = win32com.client.GetActiveObject("Excel.Application")
+            app = _wrap_com_app(xw, com)
+            if _yield(app):
+                yield app
+        except Exception as e:
+            errors.append("GetActiveObject: {}".format(e))
+        if not seen:
+            try:
+                import win32com.client
+                com = win32com.client.GetObject(Class="Excel.Application")
+                app = _wrap_com_app(xw, com)
+                if _yield(app):
+                    yield app
+            except Exception as e:
+                errors.append("GetObject: {}".format(e))
+
+    if not seen:
+        raise ExcelUnavailable(_no_excel_message(errors))
+
+
+def _book_names(book) -> list[str]:
+    names = []
+    try:
+        n = (book.name or "").strip()
+        if n:
+            names.append(n)
+    except Exception:
+        pass
+    try:
+        full = (book.fullname or "").strip()
+        if full:
+            names.append(full)
+            names.append(os.path.basename(full))
+    except Exception:
+        pass
+    return names
 
 
 def _find_book(app, workbook: str):
@@ -81,10 +174,24 @@ def _find_book(app, workbook: str):
     if not name:
         raise ExcelUnavailable("Workbook name is required.")
     target = name.lower()
+    target_base = os.path.basename(name).lower()
     for b in app.books:
-        if (b.name or "").lower() == target:
+        aliases = [a.lower() for a in _book_names(b)]
+        if target in aliases or target_base in aliases:
             return b
     raise ExcelUnavailable("Workbook '{}' is not open in Excel.".format(name))
+
+
+def _find_open_book(xw, workbook: str):
+    last = None
+    for app in _iter_excel_apps(xw):
+        try:
+            return _find_book(app, workbook)
+        except ExcelUnavailable as e:
+            last = e
+    if last:
+        raise last
+    raise ExcelUnavailable("Workbook '{}' is not open in Excel.".format(workbook))
 
 
 def _as_grid(val, n_rows: int, n_cols: int):
@@ -138,14 +245,14 @@ def list_workbooks():
     xw = _require_xlwings()
 
     def _run():
-        app = _active_app(xw)
         names = []
         seen = set()
-        for b in app.books:
-            n = (b.name or "").strip()
-            if n and n.lower() not in seen:
-                seen.add(n.lower())
-                names.append(n)
+        for app in _iter_excel_apps(xw):
+            for b in app.books:
+                n = (b.name or "").strip()
+                if n and n.lower() not in seen:
+                    seen.add(n.lower())
+                    names.append(n)
         return names
 
     return _with_com(_run)
@@ -155,8 +262,7 @@ def list_sheets(workbook: str):
     xw = _require_xlwings()
 
     def _run():
-        app = _active_app(xw)
-        wb = _find_book(app, workbook)
+        wb = _find_open_book(xw, workbook)
         return [(s.name or "").strip() for s in wb.sheets if (s.name or "").strip()]
 
     return _with_com(_run)
@@ -256,8 +362,7 @@ def preview_sheet(workbook: str, sheet: str, header_row=None):
         raise ExcelUnavailable("Workbook and sheet are required.")
 
     def _run():
-        app = _active_app(xw)
-        wb = _find_book(app, wb_name)
+        wb = _find_open_book(xw, wb_name)
         try:
             sht = wb.sheets[sh_name]
         except Exception as e:
@@ -435,8 +540,7 @@ def get_chart_data(config: dict) -> dict:
         header_row = 0
 
     def _run():
-        app = _active_app(xw)
-        wb = _find_book(app, wb_name)
+        wb = _find_open_book(xw, wb_name)
         try:
             sht = wb.sheets[sh_name]
         except Exception as e:

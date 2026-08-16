@@ -17,5 +17,7 @@ mkdir -p "$SCRIPT_DIR/libs"
 
 "$PYTHON" -m pip install -r requirements.txt --target="$SCRIPT_DIR/libs" --upgrade --force-reinstall --ignore-installed
 
+"$PYTHON" -c "import vendor_libs; vendor_libs.finish_install()" || true
+
 echo
 echo "Done! All libraries installed in ./libs/"

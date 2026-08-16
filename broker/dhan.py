@@ -6,7 +6,12 @@ Dhan API docs: https://dhanhq.co/docs/v2/
 """
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "libs"))
+
+_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+import vendor_libs
+vendor_libs.setup(_root)
 
 import requests  # noqa: F401
 

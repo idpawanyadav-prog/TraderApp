@@ -10,7 +10,12 @@ Flow:
 """
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "libs"))
+
+_root = os.path.join(os.path.dirname(__file__), "..")
+if os.path.abspath(_root) not in sys.path:
+    sys.path.insert(0, os.path.abspath(_root))
+import vendor_libs
+vendor_libs.setup(os.path.abspath(_root))
 
 import ssl
 import urllib3

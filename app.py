@@ -4,12 +4,9 @@ import os
 if sys.version_info < (3, 10):
     sys.exit("TraderApp requires Python 3.10 or newer (including 3.14).")
 
-# Add local libs folder to path so all dependencies are self-contained
-# But insert after site-packages to prioritize installed packages
-libs_path = os.path.join(os.path.dirname(__file__), "libs")
-if libs_path in sys.path:
-    sys.path.remove(libs_path)
-sys.path.append(libs_path)
+# Vendored ./libs (pip --target). Must process .pth / pywin32 DLLs or Excel COM fails.
+import vendor_libs
+libs_path = vendor_libs.setup()
 
 import csv
 import json

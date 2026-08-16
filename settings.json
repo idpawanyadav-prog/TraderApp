@@ -193,7 +193,11 @@
     "excel||TEST1|23137620-faa6-470c-9edf-ef1b21b0e8c2|Q": [],
     "excel||TEST1|23137620-faa6-470c-9edf-ef1b21b0e8c2|D": [],
     "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|25": [],
-    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|1": []
+    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|1": [],
+    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|60": [],
+    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|W": [],
+    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|M": [],
+    "excel||TEST2|2545664d-1dd6-45dc-92bf-16862a3d36f5|15": []
   },
   "broker_intervals": {
     "dhan": [
