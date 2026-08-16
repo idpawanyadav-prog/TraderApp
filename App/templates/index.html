@@ -269,9 +269,12 @@
               <span>Chg%</span>
             </div>
             <div class="wl-list" id="wl-list"></div>
-            <div class="wl-news hidden" id="wl-news" aria-label="News">
+            <div class="wl-news hidden" id="wl-news" aria-label="Stock info">
               <div class="wl-news-head">
-                <span class="wl-news-title">News</span>
+                <div class="wl-news-tabs" id="wl-news-tabs" role="tablist">
+                  <button type="button" class="wl-news-tab active" data-wl-tab="news" role="tab" aria-selected="true">News</button>
+                  <button type="button" class="wl-news-tab" data-wl-tab="fundamentals" role="tab" aria-selected="false">Fundamentals</button>
+                </div>
                 <span class="wl-news-symbol" id="wl-news-symbol"></span>
               </div>
               <div class="wl-news-body" id="wl-news-body"></div>

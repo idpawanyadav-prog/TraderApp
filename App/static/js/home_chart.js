@@ -8304,8 +8304,11 @@
     bindWatchlistDrag(list);
   }
 
-  /* ── News (shown below the watchlist, all brokers except Excel) ── */
+  /* ── News + Fundamentals (below the watchlist, all brokers except Excel) ── */
   var _newsKey = "";
+  var _newsTab = "news";
+  var _newsCache = null;
+  var _fundCache = null;
 
   function newsSymbolFor(inst) {
     if (!inst) return "";
@@ -8322,14 +8325,32 @@
     return activeBroker + ":" + sym;
   }
 
+  function newsRequestUrl(inst, endpoint) {
+    var q;
+    if (activeBroker === "yahoo") {
+      q = "yahoo_symbol=" + encodeURIComponent(newsSymbolFor(inst)) +
+        "&trading_symbol=" + encodeURIComponent(inst.trading_symbol || "");
+    } else {
+      q = "trading_symbol=" + encodeURIComponent(newsSymbolFor(inst));
+    }
+    q += "&broker=" + encodeURIComponent(activeBroker);
+    return "/api/yahoo/" + endpoint + "?" + q + (endpoint === "news" ? "&count=8" : "");
+  }
+
+  function newsBodyEl() {
+    return document.getElementById("wl-news-body");
+  }
+
   function hideYahooNews() {
     var panel = document.getElementById("wl-news");
     if (panel) panel.classList.add("hidden");
     _newsKey = "";
+    _newsCache = null;
+    _fundCache = null;
   }
 
   function renderNewsEmpty(msg) {
-    var body = document.getElementById("wl-news-body");
+    var body = newsBodyEl();
     if (body) body.innerHTML = "<div class=\"wl-news-empty\">" + escHtml(msg || "No news available.") + "</div>";
   }
 
@@ -8347,7 +8368,7 @@
   }
 
   function renderNewsItems(items, inst) {
-    var body = document.getElementById("wl-news-body");
+    var body = newsBodyEl();
     if (!body) return;
     if (!items || !items.length) {
       renderNewsEmpty("No recent news for " + escHtml((inst && (inst.trading_symbol || newsSymbolFor(inst))) || "this symbol") + ".");
@@ -8370,7 +8391,96 @@
     }).join("");
   }
 
-  async function refreshYahooNews() {
+  function renderFundamentals(data, inst) {
+    var body = newsBodyEl();
+    if (!body) return;
+    if (!data || !data.success || !data.sections || !data.sections.length) {
+      renderNewsEmpty((data && data.message) || "Fundamentals are not available for this symbol.");
+      return;
+    }
+    var html = "";
+    if (data.name) html += "<div class=\"wl-fund-name\">" + escHtml(data.name) + "</div>";
+    html += data.sections.map(function (s) {
+      var rows = (s.rows || []).map(function (r) {
+        return "<div class=\"wl-fund-row\"><span class=\"wl-fund-label\">" + escHtml(r.label) +
+          "</span><span class=\"wl-fund-value\">" + escHtml(r.value) + "</span></div>";
+      }).join("");
+      return "<div class=\"wl-fund-section\"><div class=\"wl-fund-title\">" + escHtml(s.title) + "</div>" + rows + "</div>";
+    }).join("");
+    body.innerHTML = html;
+  }
+
+  function renderStockPanel() {
+    var body = newsBodyEl();
+    if (!body) return;
+    if (_newsTab === "fundamentals") {
+      if (_fundCache == null) {
+        body.innerHTML = "<div class=\"wl-news-loading\">Loading fundamentals…</div>";
+      } else {
+        renderFundamentals(_fundCache, selectedInstrument);
+      }
+    } else {
+      if (_newsCache == null) {
+        body.innerHTML = "<div class=\"wl-news-loading\">Loading news…</div>";
+      } else {
+        renderNewsItems(_newsCache, selectedInstrument);
+      }
+    }
+  }
+
+  function syncNewsTabs() {
+    document.querySelectorAll("#wl-news-tabs .wl-news-tab").forEach(function (b) {
+      var on = b.getAttribute("data-wl-tab") === _newsTab;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+  }
+
+  function setNewsTab(tab) {
+    _newsTab = (tab === "fundamentals") ? "fundamentals" : "news";
+    syncNewsTabs();
+    renderStockPanel();
+    var inst = selectedInstrument;
+    if (_newsTab === "news") {
+      if (_newsCache == null) loadNews(inst);
+    } else {
+      if (_fundCache == null) loadFundamentals(inst);
+    }
+  }
+
+  async function loadNews(inst) {
+    if (!inst || _newsCache != null) return;
+    var key = newsKeyFor(inst);
+    try {
+      var res = await fetch(newsRequestUrl(inst, "news"));
+      var data = await res.json();
+      if (key !== _newsKey) return;
+      _newsCache = (data && data.success && Array.isArray(data.items)) ? data.items : [];
+      if (_newsTab === "news") renderStockPanel();
+    } catch (e) {
+      if (key !== _newsKey) return;
+      _newsCache = [];
+      if (_newsTab === "news") renderStockPanel();
+    }
+  }
+
+  async function loadFundamentals(inst) {
+    if (!inst || _fundCache != null) return;
+    var key = newsKeyFor(inst);
+    try {
+      var res = await fetch(newsRequestUrl(inst, "fundamentals"));
+      var data = await res.json();
+      if (key !== _newsKey) return;
+      _fundCache = data || { success: false, message: "Fundamentals are not available for this symbol." };
+      if (_newsTab === "fundamentals") renderStockPanel();
+    } catch (e) {
+      if (key !== _newsKey) return;
+      _fundCache = { success: false, message: "Unable to load fundamentals." };
+      if (_newsTab === "fundamentals") renderStockPanel();
+    }
+  }
+
+  function refreshYahooNews() {
     var panel = document.getElementById("wl-news");
     if (!panel) return;
     var inst = selectedInstrument;
@@ -8384,27 +8494,21 @@
     panel.classList.remove("hidden");
     if (key === _newsKey) return;
     _newsKey = key;
-    var body = document.getElementById("wl-news-body");
-    if (body) body.innerHTML = "<div class=\"wl-news-loading\">Loading news…</div>";
-    try {
-      var url;
-      if (activeBroker === "yahoo") {
-        url = "/api/yahoo/news?yahoo_symbol=" + encodeURIComponent(newsSymbolFor(inst)) +
-          "&trading_symbol=" + encodeURIComponent(inst.trading_symbol || "") +
-          "&count=8";
-      } else {
-        url = "/api/yahoo/news?trading_symbol=" + encodeURIComponent(newsSymbolFor(inst)) +
-          "&count=8";
-      }
-      var res = await fetch(url);
-      var data = await res.json();
-      if (_newsKey !== key) return;
-      if (data && data.success) renderNewsItems(data.items, inst);
-      else renderNewsEmpty((data && data.message) || "No news available.");
-    } catch (e) {
-      if (_newsKey !== key) return;
-      renderNewsEmpty("Unable to load news.");
-    }
+    _newsCache = null;
+    _fundCache = null;
+    _newsTab = "news";
+    syncNewsTabs();
+    renderStockPanel();
+    loadNews(inst);
+  }
+
+  var newsTabs = document.getElementById("wl-news-tabs");
+  if (newsTabs) {
+    newsTabs.addEventListener("click", function (e) {
+      var b = e.target.closest(".wl-news-tab");
+      if (!b) return;
+      setNewsTab(b.getAttribute("data-wl-tab"));
+    });
   }
 
   function commitWatchlistOrderFromDom() {

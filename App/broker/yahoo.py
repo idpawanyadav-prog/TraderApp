@@ -436,3 +436,226 @@ def get_news(yahoo_symbol, name=None, count=8, timeout=20):
     if items:
         return items
     return _news_from_google_rss(yahoo_symbol, name, count, timeout)
+
+
+# ── Fundamentals ────────────────────────────────────────────────────────────
+
+# (label, yfinance info key, formatter) grouped into display sections.
+_FUND_SECTIONS = [
+    ("Overview", [
+        ("Name", "longName", "text"),
+        ("Sector", "sector", "text"),
+        ("Industry", "industry", "text"),
+        ("Exchange", "fullExchangeName", "text"),
+        ("Website", "website", "text"),
+        ("Market State", "marketState", "text"),
+    ]),
+    ("Price", [
+        ("Current Price", "currentPrice", "price"),
+        ("Previous Close", "previousClose", "price"),
+        ("Open", "open", "price"),
+        ("Day High", "dayHigh", "price"),
+        ("Day Low", "dayLow", "price"),
+        ("52-Week High", "fiftyTwoWeekHigh", "price"),
+        ("52-Week Low", "fiftyTwoWeekLow", "price"),
+        ("Analyst Target", "targetMeanPrice", "price"),
+        ("Rating", "recommendationKey", "text"),
+    ]),
+    ("Valuation", [
+        ("Market Cap", "marketCap", "money"),
+        ("Enterprise Value", "enterpriseValue", "money"),
+        ("P/E (TTM)", "trailingPE", "ratio"),
+        ("P/E (Forward)", "forwardPE", "ratio"),
+        ("Price / Book", "priceToBook", "ratio"),
+        ("Price / Sales", "priceToSales", "ratio"),
+        ("EPS (TTM)", "trailingEps", "ratio"),
+        ("EPS (Forward)", "forwardEps", "ratio"),
+        ("Book Value", "bookValue", "price"),
+    ]),
+    ("Profitability", [
+        ("Profit Margin", "profitMargins", "pct"),
+        ("Operating Margin", "operatingMargins", "pct"),
+        ("Gross Margin", "grossMargins", "pct"),
+        ("Return on Equity", "returnOnEquity", "pct"),
+        ("Return on Assets", "returnOnAssets", "pct"),
+    ]),
+    ("Growth", [
+        ("Revenue Growth", "revenueGrowth", "pct"),
+        ("Earnings Growth", "earningsGrowth", "pct"),
+    ]),
+    ("Dividends", [
+        ("Dividend Yield", "dividendYield", "pct"),
+        ("Dividend Rate", "dividendRate", "price"),
+    ]),
+    ("Liquidity", [
+        ("Beta (5Y)", "beta", "ratio"),
+        ("Avg Volume", "averageVolume", "int"),
+        ("Avg Volume (10D)", "averageDailyVolume10Day", "int"),
+        ("Shares Outstanding", "sharesOutstanding", "int"),
+    ]),
+]
+
+
+def _fmt_text(v):
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
+
+
+def _fmt_price(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f:  # NaN
+        return None
+    return "%.2f" % f
+
+
+def _fmt_ratio(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f:
+        return None
+    return "%.2f" % f
+
+
+def _fmt_int(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f:
+        return None
+    return "{:,.0f}".format(f)
+
+
+def _fmt_pct(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f:
+        return None
+    return "%.2f%%" % (f * 100.0)
+
+
+def _fmt_money(v, currency=""):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f:
+        return None
+    sign = "-" if f < 0 else ""
+    a = abs(f)
+    if currency == "INR":
+        if a >= 1e12:
+            return "%s₹%.2f Lakh Cr" % (sign, a / 1e12)
+        if a >= 1e7:
+            return "%s₹%.2f Cr" % (sign, a / 1e7)
+        if a >= 1e5:
+            return "%s₹%.2f L" % (sign, a / 1e5)
+        return "%s₹%.2f" % (sign, a)
+    if a >= 1e12:
+        return "%s$%.2f T" % (sign, a / 1e12)
+    if a >= 1e9:
+        return "%s$%.2f B" % (sign, a / 1e9)
+    if a >= 1e6:
+        return "%s$%.2f M" % (sign, a / 1e6)
+    return "%s$%.2f" % (sign, a)
+
+
+def _fmt_fund(raw, kind, currency=""):
+    if kind == "text":
+        return _fmt_text(raw)
+    if kind == "price":
+        return _fmt_price(raw)
+    if kind == "ratio":
+        return _fmt_ratio(raw)
+    if kind == "int":
+        return _fmt_int(raw)
+    if kind == "pct":
+        return _fmt_pct(raw)
+    if kind == "money":
+        return _fmt_money(raw, currency)
+    return _fmt_text(raw)
+
+
+def _fund_symbol_candidates(yahoo_symbol):
+    """Yield ticker candidates to try, in order.
+
+    If the symbol is a bare root (e.g. "RELIANCE"), try the NSE (.NS) and then
+    BSE (.BO) suffix so fundamentals resolve even when Yahoo has no data for
+    the unsuffixed symbol.
+    """
+    symbol = (yahoo_symbol or "").strip()
+    if not symbol:
+        return
+    yield symbol
+    upper = symbol.upper()
+    if upper.endswith((".NS", ".BO")):
+        # Already suffixed; don't guess further.
+        return
+    if upper.startswith("^"):
+        return
+    yield symbol + ".NS"
+    yield symbol + ".BO"
+
+
+def _fetch_fund_info(symbol):
+    try:
+        import yfinance as yf
+    except Exception:
+        return None
+    try:
+        info = yf.Ticker(symbol).info or {}
+    except Exception:
+        return None
+    return info or None
+
+
+def get_fundamentals(yahoo_symbol, timeout=20, try_suffixes=False):
+    """Return fundamental data for a ticker via yfinance.
+
+    When ``try_suffixes`` is True (used for bare roots coming from Dhan /
+    5Paisa), the given symbol is tried as-is, then with `.NS` appended, then
+    `.BO` appended. When False (Yahoo broker — symbols are already correct),
+    only the given symbol is tried. Returns
+    {"name", "sections": [{"title", "rows": [{"label", "value"}]}]}
+    or None when nothing could be retrieved.
+    """
+    info = None
+    resolved = ""
+    candidates = _fund_symbol_candidates(yahoo_symbol) if try_suffixes else [((yahoo_symbol or "").strip())]
+    for symbol in candidates:
+        if not symbol:
+            continue
+        data = _fetch_fund_info(symbol)
+        if not data:
+            continue
+        info = data
+        resolved = symbol
+        break
+    if not info:
+        return None
+    currency = str(info.get("currency") or "")
+    result = {
+        "name": _fmt_text(info.get("longName") or info.get("shortName")) or resolved,
+        "sections": [],
+    }
+    for title, fields in _FUND_SECTIONS:
+        rows = []
+        for label, key, kind in fields:
+            value = _fmt_fund(info.get(key), kind, currency)
+            if value is None:
+                continue
+            rows.append({"label": label, "value": value})
+        if rows:
+            result["sections"].append({"title": title, "rows": rows})
+    if not result["sections"]:
+        return None
+    return result

@@ -1526,6 +1526,31 @@ def yahoo_news():
     return jsonify({"success": True, "items": items, "count": len(items)})
 
 
+@app.route("/api/yahoo/fundamentals")
+def yahoo_fundamentals():
+    yahoo_symbol = (request.args.get("yahoo_symbol") or "").strip()
+    trading_symbol = (request.args.get("trading_symbol") or request.args.get("symbol") or "").strip()
+    broker = (request.args.get("broker") or "").strip().lower()
+    # Only bare roots coming from Dhan / 5Paisa should get the .NS / .BO
+    # fallback. Yahoo symbols are already correct, and Excel shows no panel.
+    try_suffixes = broker not in ("yahoo", "excel")
+    if not yahoo_symbol and trading_symbol:
+        rec = yf_broker.lookup_instrument(trading_symbol)
+        yahoo_symbol = (rec or {}).get("yahoo_symbol") or ""
+        if not yahoo_symbol:
+            yahoo_symbol = trading_symbol
+    if not yahoo_symbol:
+        return jsonify({"success": False, "message": "A search symbol is required."}), 400
+    data = yf_broker.get_fundamentals(yahoo_symbol, try_suffixes=try_suffixes)
+    if not data:
+        return jsonify({"success": False, "message": "Fundamentals are not available for this symbol."})
+    return jsonify({
+        "success": True,
+        "name": data.get("name"),
+        "sections": data.get("sections") or [],
+    })
+
+
 @app.route("/api/yahoo/chart/data", methods=["POST"])
 def yahoo_chart_data():
     s = load_app_settings()
