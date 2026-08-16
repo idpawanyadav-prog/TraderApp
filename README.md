@@ -5,6 +5,8 @@ TraderApp is a Flask + Socket.IO trading dashboard. It connects to broker APIs (
 ## Features
 
 - **Home chart** — search instruments, load candles, drawing tools, zoom/pan, dark/light theme
+- **Watchlist** — multiple per-broker watchlists (drag to reorder, live quotes) docked beside the chart
+- **Stock news** — a news panel below the watchlist for the selected symbol (Dhan, 5Paisa, and Yahoo; Excel is excluded)
 - **Brokers** — Dhan, 5Paisa, Yahoo Finance, and Excel (`xlwings`)
 - **Live updates** — Socket.IO feed for 5Paisa (polled and pushed to the chart)
 - **Custom indicators** — Python modules in `custom_indicators/` appear in the chart Custom menu
@@ -47,12 +49,20 @@ TraderApp is a Flask + Socket.IO trading dashboard. It connects to broker APIs (
 
 1. Open **Connect to Broker** and enable/connect Dhan, 5Paisa, Yahoo, or Excel.
 2. On **Home**, pick a broker tab, search a symbol, choose an interval, and click **Load**.
-3. Under **Analysis**:
+3. Use the **Watchlist** button in the chart toolbar to dock a watchlist; add symbols with **+**, and click a row to load it. When a symbol is selected, a **News** panel appears below the watchlist (for Dhan, 5Paisa, and Yahoo).
+4. Under **Analysis**:
    - **Correlation** — scan pairs and open pair-detail (normalized prices, ratio, density, rolling correlation, z-score).
    - **Option Chain / Open Interest / Gamma Exposure / Strategy Builder** — available when Dhan or 5Paisa is connected.
-4. **Settings** — market filters, chart intervals, option-chain fields, indicators, and optional API access.
+5. **Settings** — market filters, chart intervals, option-chain fields, indicators, and optional API access.
 
 Credentials and tokens are stored locally by the app. Do not commit `credentials` files, `.flask_secret`, or similar secrets.
+
+## Stock news
+
+When a symbol is selected on the Home chart (Dhan, 5Paisa, or Yahoo), the watchlist shows a **News** panel with recent headlines. News is fetched through the Yahoo Finance module in `broker/yahoo.py`:
+
+- Primary source is **yfinance** (`yfinance.Ticker(symbol).news`).
+- Falls back to **Google News RSS** keyed off the instrument name when yfinance returns nothing — this is what delivers relevant headlines for Indian (`.NS`/`.BO`) symbols, since Yahoo's news endpoints are US-centric and rate-limited.
 
 ## Public API
 
