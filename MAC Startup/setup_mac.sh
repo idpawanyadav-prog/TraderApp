@@ -17,7 +17,7 @@ source "$MAC_DIR/find_python.sh" 2>/dev/null && {
 if ! command -v brew >/dev/null 2>&1; then
   echo "Homebrew is not installed. Install it from https://brew.sh"
   echo "or download Python from https://www.python.org/downloads/macos/"
-  echo "then run ./mac/install_libs.sh and ./mac/start_server.sh again."
+  echo "then run \"./MAC Startup/install_libs.sh\" and \"./MAC Startup/start_server.sh\" again."
   exit 1
 fi
 

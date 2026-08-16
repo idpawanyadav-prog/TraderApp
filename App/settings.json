@@ -1,12 +1,12 @@
 {
-  "api_enabled": true,
-  "dhan_enabled": false,
+  "api_enabled": false,
+  "dhan_enabled": true,
   "5paisa_enabled": true,
   "yahoo_enabled": false,
   "yahoo_base_url": "https://query1.finance.yahoo.com/v8/finance/chart/{YahooStockSymbol}?symbol={YahooStockSymbol}&period1={UTCStartDTM}&period2={UTCEndDTM}&useYfid=true&interval={Interval}",
   "excel_enabled": false,
   "excel_configs": [],
-  "chart_refresh_interval": 0,
+  "chart_refresh_interval": 5,
   "enabled_exchanges": [
     "N",
     "B",
@@ -94,79 +94,61 @@
     {
       "key": "vanna",
       "label": "Vanna",
-      "visible": true
+      "visible": false
     },
     {
       "key": "charm",
       "label": "Charm",
-      "visible": true
+      "visible": false
     },
     {
       "key": "volga",
       "label": "Volga",
-      "visible": true
+      "visible": false
     },
     {
       "key": "iv_vwap",
       "label": "IV VWAP",
-      "visible": true
+      "visible": false
     },
     {
       "key": "speed",
       "label": "Speed",
-      "visible": true
+      "visible": false
     },
     {
       "key": "zomma",
       "label": "Zomma",
-      "visible": true
+      "visible": false
     },
     {
       "key": "color",
       "label": "Color",
-      "visible": true
+      "visible": false
     },
     {
       "key": "veta",
       "label": "Veta",
-      "visible": true
+      "visible": false
     }
   ],
   "ta_enabled": false,
   "ta_indicators": [],
   "chart_drawings": {
-    "yahoo||TCS|TCS.NS|D": [],
-    "5paisa|N|INFY|1594|1": [],
-    "5paisa|N|INFY|1594|5": [],
-    "5paisa|N|INFY|1594|25": [],
-    "5paisa|N|INFY|1594|D": [],
-    "5paisa|N|TCS|11536|1": [],
-    "5paisa|N|TCS|11536|5": [],
-    "5paisa|N|TCS|11536|25": [],
-    "5paisa|N|TCS|11536|D": [],
-    "5paisa|N|ITC|1660|1": [],
-    "5paisa|N|ITC|1660|5": [],
-    "5paisa|N|ITC|1660|25": [],
-    "5paisa|N|ITC|1660|D": [],
-    "5paisa|N|SBIN|3045|1": [],
-    "5paisa|N|SBIN|3045|5": [],
-    "5paisa|N|SBIN|3045|25": [],
-    "5paisa|N|SBIN|3045|D": [],
-    "yahoo||INFY|INFY.NS|D": [],
-    "yahoo|N|TCS|11536|25": [],
-    "yahoo|N|TCS|11536|D": [],
-    "yahoo|N|TCS|11536|5": [],
-    "yahoo||TCS|TCS.NS|1": [],
-    "yahoo||TCS|TCS.NS|5": [],
-    "yahoo||INFY|INFY.NS|5": [],
-    "yahoo||INFY|INFY.NS|25": [],
-    "yahoo||INFY|INFY.NS|1": [],
-    "yahoo||TCS|TCS.NS|25": [],
+    "5paisa|N|PRAKASH|2708|5": [],
+    "5paisa|N|PRAKASH|2708|25": [],
+    "5paisa|N|PRAKASH|2708|D": [],
+    "5paisa|N|PRAKASH|2708|1": [],
+    "5paisa|N|HDFCBANK|1333|1": [],
+    "5paisa|N|HDFCBANK|1333|5": [],
     "5paisa|N|HDFCBANK|1333|25": [],
     "5paisa|N|HDFCBANK|1333|D": [],
-    "5paisa|N|HDFCBANK|1333|5": [],
-    "5paisa|N|HDFCBANK|1333|15": [],
-    "5paisa|N|HDFCBANK|1333|1": []
+    "5paisa|N|AXISBANK|5900|5": [],
+    "5paisa|N|AXISBANK|5900|25": [],
+    "5paisa|N|AXISBANK|5900|D": [],
+    "5paisa|N|AXISBANK|5900|1": [],
+    "5paisa|N|INFY|1594|5": [],
+    "5paisa|N|ITC|1660|25": []
   },
   "broker_intervals": {
     "dhan": [
@@ -320,5 +302,5 @@
       }
     ]
   },
-  "api_key": "3fa56b4c-cd7a-4cf5-a24c-108030d55981"
+  "api_key": "4904012e-e7ed-4ecd-92c0-296fc0b6853d"
 }

@@ -1,4 +1,4 @@
-# Vendored Python packages (reinstall with Win/install_libs.bat)
+# Vendored Python packages (reinstall with "Win Startup/install_libs.bat")
 libs/
 
 # Local Python runtimes
@@ -33,3 +33,6 @@ oi_prev_close.json
 # Scratch/test files (locked by Excel when open)
 Testing.xlsx
 Testing - Copy.xlsx
+
+# Runtime temp files
+*.tmp

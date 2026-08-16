@@ -36,7 +36,7 @@ if not errorlevel 1 (
 
 echo [ERROR] No Python interpreter found.
 echo Install Python 3.10 or newer from https://www.python.org/downloads/
-echo or run Win\install_python.bat to bundle Python 3.14 in this folder.
+echo or run "Win Startup\install_python.bat" to bundle Python 3.14 in this folder.
 exit /b 1
 
 :check
@@ -44,7 +44,7 @@ exit /b 1
 if errorlevel 1 (
     echo [ERROR] Python 3.10 or newer is required.
     "%PYTHON%" -V
-    echo Run Win\install_python.bat, or install a current Python from python.org.
+    echo Run "Win Startup\install_python.bat", or install a current Python from python.org.
     set "PYTHON="
     exit /b 1
 )

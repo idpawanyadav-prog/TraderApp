@@ -47,7 +47,7 @@ fi
 if [ -z "$PYTHON" ]; then
   echo "[ERROR] No Python 3.10+ interpreter found."
   echo "        Install Python 3.14 from https://www.python.org/downloads/macos/"
-  echo "        or run ./mac/setup_mac.sh (installs via Homebrew)."
+  echo "        or run \"./MAC Startup/setup_mac.sh\" (installs via Homebrew)."
   exit 1
 fi
 

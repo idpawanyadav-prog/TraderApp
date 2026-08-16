@@ -1,6 +1,6 @@
 # TraderApp Python dependencies
 # Requires Python 3.10 or newer (including 3.14).
-# Install into App/libs with Win/install_libs.bat / mac/install_libs.sh
+# Install into App/libs with "Win Startup/install_libs.bat" / "MAC Startup/install_libs.sh"
 # (pip also installs transitive deps such as Werkzeug, Jinja2, python-socketio).
 
 # --- Direct imports (see app.py, broker/, analysis/, services/) ---
@@ -10,7 +10,7 @@ Flask>=3.1.3,<4
 Flask-SocketIO>=5.6.1,<6
 # These are pulled by Flask-SocketIO but pip --target=libs often skips them
 # when the host Python (e.g. Anaconda) already has a subset. List them so
-# a GitHub zip + Win/install_libs.bat has a complete App/libs.
+# a GitHub zip + "Win Startup/install_libs.bat" has a complete App/libs.
 python-socketio>=5.12.0,<6
 python-engineio>=4.11.0,<5
 simple-websocket>=1.1.0,<2
@@ -31,8 +31,21 @@ certifi>=2024.0.0
 charset-normalizer>=3.0.0,<4
 idna>=3.7,<4
 
-# Yahoo news (broker/yahoo.py — primary news source, falls back to RSS)
+# Yahoo news + fundamentals (broker/yahoo.py) — yfinance and its direct deps.
+# Listed explicitly because pip --target=libs can skip packages already present
+# in the host Python (e.g. Anaconda), leaving App/libs incomplete.
 yfinance>=0.2.37,<1
+pandas>=2.2.0,<3
+python-dateutil>=2.8.2
+pytz>=2022.5
+tzdata>=2022.1
+multitasking>=0.0.7
+appdirs>=1.4.4
+frozendict>=2.3.4
+peewee>=3.16.2
+beautifulsoup4>=4.11.1
+html5lib>=1.1
+lxml>=4.9.1
 
 # WebSocket client (5Paisa option Greeks in broker/fivepaisa.py)
 websocket-client>=1.8.0,<2

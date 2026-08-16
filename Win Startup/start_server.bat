@@ -38,5 +38,5 @@ start http://127.0.0.1:5000/
 echo.
 echo [INFO] Server is starting in a separate "TraderApp" window.
 echo [INFO] If the browser is blank, read that window for the error.
-echo [INFO] Missing packages: run Win\install_libs.bat, then this file again.
+echo [INFO] Missing packages: run "Win Startup\install_libs.bat", then this file again.
 exit /b 0
