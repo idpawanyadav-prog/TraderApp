@@ -582,7 +582,14 @@
     return _curSlot === 0 ? LS_INDS : LS_INDS + "." + _curSlot;
   }
   function slotCtypeKey() {
-    return _curSlot === 0 ? LS_CTYPE : LS_CTYPE + "." + _curSlot;
+    return ctypeKeyFor(_curSlot);
+  }
+  function ctypeKeyFor(i) {
+    return i === 0 ? LS_CTYPE : LS_CTYPE + "." + i;
+  }
+  function resolveCandleType(saved, fallback) {
+    if (typeof saved === "string" && CANDLE_TYPES.some(function (t) { return t.id === saved; })) return saved;
+    return fallback || "candle_solid";
   }
   function activeLegendEl() {
     var s = chartSlots[activeSlot];
@@ -1137,10 +1144,9 @@
     if (!stage) return;
     for (var i = chartSlots.length; i < n; i++) {
       var s = makeSlotState(i);
-      var savedCtype = storageGet(LS_CTYPE + "." + i, "candle_solid");
-      if (typeof savedCtype === "string" && CANDLE_TYPES.some(function (t) { return t.id === savedCtype; })) {
-        s.candleType = savedCtype;
-      }
+      var src = chartSlots[activeSlot] || chartSlots[0];
+      var inheritType = (src && src.candleType) || _candleType;
+      s.candleType = resolveCandleType(storageGet(ctypeKeyFor(i), null), inheritType);
       var wrap = document.createElement("div");
       wrap.className = "chart-slot" + (i === activeSlot ? " active" : "");
       wrap.setAttribute("data-slot", String(i));
@@ -1212,26 +1218,32 @@
       renderSplitPop();
       return;
     }
+    var prevCount = splitCount;
     persistVisibleDrawings();
+    commitSlotGlobals();
     ensureSlotDOM(n);
     splitLayoutId = L.id;
     splitCount = n;
+    /* New panes inherit candle colors/style from the chart being split. */
+    var src = chartSlots[activeSlot] || chartSlots[0];
+    var srcType = (src && src.candleType) || _candleType;
+    var ni;
+    for (ni = prevCount; ni < n; ni++) {
+      if (!chartSlots[ni]) continue;
+      chartSlots[ni].candleType = srcType;
+      storageSet(ctypeKeyFor(ni), srcType);
+      if (layoutSync.symbol && src) {
+        chartSlots[ni].interval = src.interval || activeInterval;
+        if (src.instrument) chartSlots[ni].instrument = src.instrument;
+      }
+    }
     if (activeSlot >= splitCount) activeSlot = 0;
     resetSplitFractions(L);
     applySplitLayout();
     storageSet(LS_SPLIT, L.id);
-    if (layoutSync.symbol && selectedInstrument) {
-      var si;
-      for (si = 0; si < splitCount; si++) {
-        if (chartSlots[si] && !chartSlots[si].instrument) chartSlots[si].instrument = selectedInstrument;
-      }
-    }
-    if (layoutSync.interval) {
-      for (si = 0; si < splitCount; si++) {
-        if (chartSlots[si]) chartSlots[si].interval = activeInterval;
-      }
-    }
     ensureSlotCharts();
+    if (window._chartApplyTheme) window._chartApplyTheme();
+    if (layoutSync.symbol || layoutSync.interval) syncVisibleSlotsWithLayout();
     renderSplitPop();
   }
 
@@ -1346,13 +1358,80 @@
     updateSlotTickers();
   }
 
-  function loadSyncedSlots(exceptIdx) {
+  function instrumentsMatch(a, b) {
+    var pa = instrumentKeyParts(a);
+    var pb = instrumentKeyParts(b);
+    if (!pa || !pb) return false;
+    if (pa.id && pb.id) return pa.id === pb.id;
+    return !!(pa.sym && pb.sym && pa.sym === pb.sym);
+  }
+
+  function copySeriesToSlot(srcIdx, dstIdx) {
+    var src = chartSlots[srcIdx];
+    var dst = chartSlots[dstIdx];
+    if (!src || !dst || !dst.chart) return;
+    dst.rawBars = (src.rawBars || []).map(function (b) {
+      return {
+        timestamp: b.timestamp, open: b.open, high: b.high, low: b.low, close: b.close,
+        volume: b.volume || 0
+      };
+    });
+    dst.prevClose = src.prevClose;
+    dst.lastBarTime = src.lastBarTime;
+    dst.histMore = src.histMore;
+    dst.histLoading = false;
+    dst.excelOverlayData = src.excelOverlayData;
+    _useSlot(dstIdx);
+    applyChartContainerTheme(dst.container);
+    applyChartData(displaySeries(visibleRawBars()), dst.histMore !== false);
+    try { dst.chart.setStyles(klineStyles()); } catch (_) {}
+    try { dst.chart.resize(); } catch (_) {}
+    setSlotOhlc(dst, dst.rawBars.length ? dst.rawBars[dst.rawBars.length - 1] : null);
+  }
+
+  function syncVisibleSlotsWithLayout() {
+    var srcIdx = activeSlot;
+    var src = chartSlots[srcIdx];
+    if (!src) return;
+    if (layoutSync.symbol && src.instrument) applySymbolToLayout(src.instrument);
+    if (layoutSync.interval) {
+      var ii;
+      for (ii = 0; ii < splitCount; ii++) {
+        if (chartSlots[ii]) chartSlots[ii].interval = src.interval || activeInterval;
+      }
+    }
+    if (!layoutSync.symbol && !layoutSync.interval) return;
+    var cloned = {};
+    var i;
+    for (i = 0; i < splitCount; i++) {
+      if (i === srcIdx) continue;
+      var s = chartSlots[i];
+      if (!s || !s.chart || !s.instrument) continue;
+      var sameSym = instrumentsMatch(s.instrument, src.instrument);
+      var sameIv = String(s.interval || "1") === String(src.interval || "1");
+      if (sameSym && sameIv && src.rawBars && src.rawBars.length) {
+        copySeriesToSlot(srcIdx, i);
+        cloned[i] = true;
+      }
+    }
+    _useSlot(srcIdx);
+    updateSlotTickers();
+    var needFetch = false;
+    for (i = 0; i < splitCount; i++) {
+      if (i === srcIdx || cloned[i]) continue;
+      if (chartSlots[i] && chartSlots[i].instrument) { needFetch = true; break; }
+    }
+    if (needFetch) loadSyncedSlots(srcIdx, cloned);
+  }
+
+  function loadSyncedSlots(exceptIdx, skipMap) {
     if (_layoutSyncBusy) return;
     if (!layoutSync.symbol && !layoutSync.interval) return;
     var jobs = [];
     var i;
     for (i = 0; i < splitCount; i++) {
       if (i === exceptIdx) continue;
+      if (skipMap && skipMap[i]) continue;
       if (!chartSlots[i] || !chartSlots[i].instrument) continue;
       jobs.push(i);
     }
@@ -2049,12 +2128,22 @@
     };
   }
 
+  function applyChartContainerTheme(el) {
+    var node = el || chartContainer;
+    if (!node) return;
+    var th = window._getChartTheme ? window._getChartTheme() : null;
+    node.style.background = (th && th.bg) ? th.bg : "";
+  }
+
   window._chartApplyTheme = function () {
     forEachChart(function (c, i) {
       _useSlot(i);
-      if (chartContainer) chartContainer.style.background = (window._getChartTheme() || {}).bg || "";
+      applyChartContainerTheme(chartContainer);
       try { c.setStyles(klineStyles()); } catch (_) {}
       try { c.resize(); } catch (_) {}
+    });
+    document.querySelectorAll("#chart-stage .chart-slot-canvas, #chart-stage #chart-container").forEach(function (node) {
+      applyChartContainerTheme(node);
     });
     _useSlot(activeSlot >= splitCount ? 0 : activeSlot);
   };
@@ -2400,6 +2489,7 @@
     chartContainer.innerHTML = "";
     chartMessage.style.display = "none";
     chartContainer.style.display = "block";
+    applyChartContainerTheme(chartContainer);
     chart = klinecharts.init(chartContainer, {
       locale: "en-US",
       timezone: IST_TZ,

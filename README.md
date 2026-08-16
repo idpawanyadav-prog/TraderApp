@@ -18,7 +18,7 @@ TraderApp is a Flask + Socket.IO trading dashboard. It connects to broker APIs (
 
 - Windows, macOS, or Linux
 - Python 3.10 or newer (including 3.14). Python 3.6 is not supported.
-- On Windows a local copy can be installed into `python314` with `install_python.bat`. On macOS run `setup_mac.sh` or install from python.org.
+- On Windows a local copy can be installed into `python314` with `install_python.bat`. On macOS run `mac/setup_mac.sh` or install from python.org.
 
 ## Quick Start (Windows)
 
@@ -31,16 +31,16 @@ TraderApp is a Flask + Socket.IO trading dashboard. It connects to broker APIs (
 ## Quick Start (macOS / Linux)
 
 1. Open Terminal in the project folder.
-2. Run `./setup_mac.sh` if you do not already have Python 3.10+ (installs via Homebrew on macOS).
-3. Run `./install_libs.sh` to install dependencies into `libs`.
-4. Run `./start_server.sh`.
+2. Run `./mac/setup_mac.sh` if you do not already have Python 3.10+ (installs via Homebrew on macOS).
+3. Run `./mac/install_libs.sh` to install dependencies into `libs`.
+4. Run `./mac/start_server.sh`.
 
 ## Use from iPhone / iPad
 
 - The server binds to `0.0.0.0` by default, so any device on the same Wi-Fi can open it.
 - After starting, use the **iPhone/iPad (same Wi-Fi)** URL printed in the terminal (e.g. `http://192.168.1.23:5000/`) in Safari.
 - For a full-screen, app-like experience: Safari **Share → Add to Home Screen**.
-- To restrict the server to localhost: `TRADERAPP_HOST=127.0.0.1 ./start_server.sh` (same env var works on Windows).
+- To restrict the server to localhost: `TRADERAPP_HOST=127.0.0.1 ./mac/start_server.sh` (same env var works on Windows).
 - Port override: `TRADERAPP_PORT=5001`.
 
 ## Using the app

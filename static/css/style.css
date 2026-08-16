@@ -1398,6 +1398,10 @@ button:hover { opacity: 0.85; }
   border: none;
   border-radius: 0;
 }
+[data-theme="light"] .chart-slot-body > #chart-container,
+[data-theme="light"] .chart-slot-body > .chart-slot-canvas {
+  background: #ffffff;
+}
 .chart-slot.slot-hidden { display: none; }
 
 /* Drag-resize dividers between charts */

@@ -3266,7 +3266,7 @@ if __name__ == "__main__":
     socketio.start_background_task(_live_feed_worker)
     # Bind to 0.0.0.0 by default so iPhones/iPads on the same Wi-Fi network
     # can open TraderApp from their browser. Override with env vars, e.g.
-    #   TRADERAPP_HOST=127.0.0.1 TRADERAPP_PORT=5001 ./start_server.sh
+    #   TRADERAPP_HOST=127.0.0.1 TRADERAPP_PORT=5001 ./mac/start_server.sh
     host = os.environ.get("TRADERAPP_HOST", "0.0.0.0")
     try:
         port = int(os.environ.get("TRADERAPP_PORT", "5000"))

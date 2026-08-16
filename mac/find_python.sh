@@ -4,12 +4,13 @@
 # /usr/bin/python3, and any python3.x on PATH.
 set -u
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MAC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$MAC_DIR/.." && pwd)"
 export PYTHON=""
 
 # Homebrew (Apple Silicon / Intel)
 for brew_py in \
-  "$SCRIPT_DIR/python314/bin/python3" \
+  "$ROOT_DIR/python314/bin/python3" \
   /opt/homebrew/bin/python3 \
   /usr/local/bin/python3; do
   if [ -x "$brew_py" ]; then
@@ -46,7 +47,7 @@ fi
 if [ -z "$PYTHON" ]; then
   echo "[ERROR] No Python 3.10+ interpreter found."
   echo "        Install Python 3.14 from https://www.python.org/downloads/macos/"
-  echo "        or run ./setup_mac.sh (installs via Homebrew)."
+  echo "        or run ./mac/setup_mac.sh (installs via Homebrew)."
   exit 1
 fi
 

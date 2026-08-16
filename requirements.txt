@@ -1,6 +1,6 @@
 # TraderApp Python dependencies
 # Requires Python 3.10 or newer (including 3.14).
-# Install into ./libs with install_libs.bat / install_libs.sh
+# Install into ./libs with install_libs.bat / mac/install_libs.sh
 # (pip also installs transitive deps such as Werkzeug, Jinja2, python-socketio).
 
 # --- Direct imports (see app.py, broker/, analysis/, services/) ---

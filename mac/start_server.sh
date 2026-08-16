@@ -3,11 +3,12 @@
 # same Wi-Fi network can open the app too.
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+MAC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$MAC_DIR/.." && pwd)"
+cd "$ROOT_DIR"
 
 # shellcheck disable=SC1091
-source ./find_python.sh
+source "$MAC_DIR/find_python.sh"
 
 # Stop any existing TraderApp server on port 5000
 echo "[INFO] Stopping any existing TraderApp server..."
