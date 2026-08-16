@@ -31,6 +31,9 @@ certifi>=2024.0.0
 charset-normalizer>=3.0.0,<4
 idna>=3.7,<4
 
+# Yahoo news (broker/yahoo.py — primary news source, falls back to RSS)
+yfinance>=0.2.37,<1
+
 # WebSocket client (5Paisa option Greeks in broker/fivepaisa.py)
 websocket-client>=1.8.0,<2
 

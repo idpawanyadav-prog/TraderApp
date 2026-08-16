@@ -12,7 +12,9 @@ from __future__ import annotations
 import csv
 import os
 import threading
+import xml.etree.ElementTree as _ET
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime as _parsedate_to_datetime
 from urllib.parse import quote
 
 import requests
@@ -287,3 +289,150 @@ def get_historical_data(yahoo_symbol, interval, from_date, to_date,
         except (TypeError, ValueError):
             continue
     return candles
+
+
+NEWS_RSS_URL = "https://news.google.com/rss/search"
+NEWS_RSS_REGION = "IN"
+NEWS_RSS_LANG = "en-IN"
+
+# Friendlier search phrases for well-known non-stock symbols, so results stay
+# on-topic instead of searching a raw ticker like "^NSEI".
+_NEWS_QUERY_OVERRIDES = {
+    "^NSEI": "Nifty 50 index",
+    "^NSEBANK": "Bank Nifty index",
+    "^NSEMDCP50": "Nifty Midcap 50 index",
+    "NIFTY_FIN_SERVICE.NS": "Nifty Financial Services index",
+}
+
+
+def _news_query(name, yahoo_symbol):
+    """Build a Google News search phrase for an instrument."""
+    override = _NEWS_QUERY_OVERRIDES.get((yahoo_symbol or "").strip())
+    if override:
+        return override
+    base = (name or "").replace("/", " ").strip()
+    sym = (yahoo_symbol or "").strip()
+    if not base:
+        base = sym.replace("/", " ").strip()
+    if not base:
+        return ""
+    if sym.endswith((".NS", ".BO")):
+        return base + " share price"
+    if sym.startswith("^"):
+        return base + " index"
+    if sym.endswith("=X"):
+        return base + " exchange rate"
+    if sym.endswith("=F"):
+        return base + " price"
+    return base
+
+
+def _news_from_yfinance(yahoo_symbol, count=8):
+    """Fetch news via yfinance (Yahoo Finance search endpoint).
+
+    Returns a list of {title, publisher, link, published, thumbnail} or [].
+    Yahoo's search endpoint is US-centric and rate-limited, so this may return
+    nothing or generic items; callers should fall back to Google News RSS.
+    """
+    try:
+        import yfinance as yf
+    except Exception:
+        return []
+    symbol = (yahoo_symbol or "").strip()
+    if not symbol:
+        return []
+    try:
+        ticker = yf.Ticker(symbol)
+        news = ticker.news or []
+    except Exception:
+        return []
+    items = []
+    for raw in news:
+        if not isinstance(raw, dict):
+            continue
+        title = (raw.get("title") or "").strip()
+        link = (raw.get("link") or "").strip()
+        if not title or not link:
+            continue
+        thumb = ""
+        resolutions = ((raw.get("thumbnail") or {}).get("resolutions")) or []
+        if resolutions:
+            thumb = (resolutions[0].get("url") or "").strip()
+        items.append({
+            "title": title,
+            "publisher": (raw.get("publisher") or "").strip(),
+            "link": link,
+            "published": int(raw.get("providerPublishTime") or 0),
+            "thumbnail": thumb,
+        })
+        if len(items) >= max(1, int(count or 8)):
+            break
+    return items
+
+
+def _news_from_google_rss(yahoo_symbol, name, count=8, timeout=20):
+    """Fallback: fetch ticker-relevant headlines via Google News RSS."""
+    query = _news_query(name, yahoo_symbol)
+    if not query:
+        return []
+    try:
+        resp = _session.get(
+            NEWS_RSS_URL,
+            params={
+                "q": query,
+                "hl": NEWS_RSS_LANG,
+                "gl": NEWS_RSS_REGION,
+                "ceid": NEWS_RSS_REGION + ":" + NEWS_RSS_LANG.split("-")[0],
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+    except Exception:
+        return []
+
+    items = []
+    try:
+        root = _ET.fromstring(resp.content)
+    except Exception:
+        return []
+    for node in root.findall("./channel/item"):
+        title = (node.findtext("title") or "").strip()
+        link = (node.findtext("link") or "").strip()
+        if not title or not link:
+            continue
+        publisher = (node.findtext("source") or "").strip()
+        # Google News appends " - Publisher" to the headline; strip it.
+        if publisher and title.endswith(" - " + publisher):
+            title = title[: -(len(" - " + publisher))].strip()
+        published = 0
+        pub_date = (node.findtext("pubDate") or "").strip()
+        if pub_date:
+            try:
+                dt = _parsedate_to_datetime(pub_date)
+                published = int(dt.timestamp())
+            except (TypeError, ValueError, OverflowError):
+                published = 0
+        items.append({
+            "title": title,
+            "publisher": publisher,
+            "link": link,
+            "published": published,
+            "thumbnail": "",
+        })
+        if len(items) >= max(1, int(count or 8)):
+            break
+    return items
+
+
+def get_news(yahoo_symbol, name=None, count=8, timeout=20):
+    """Return recent news headlines for a symbol.
+
+    Tries yfinance (Yahoo Finance) first, then falls back to Google News RSS
+    keyed off the instrument name — which is what actually returns
+    ticker-relevant items for Indian (.NS/.BO) symbols. Each item is
+    {title, publisher, link, published (unix seconds), thumbnail}.
+    """
+    items = _news_from_yfinance(yahoo_symbol, count)
+    if items:
+        return items
+    return _news_from_google_rss(yahoo_symbol, name, count, timeout)

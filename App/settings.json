@@ -152,7 +152,21 @@
     "5paisa|N|SBIN|3045|5": [],
     "5paisa|N|SBIN|3045|25": [],
     "5paisa|N|SBIN|3045|D": [],
-    "yahoo||INFY|INFY.NS|D": []
+    "yahoo||INFY|INFY.NS|D": [],
+    "yahoo|N|TCS|11536|25": [],
+    "yahoo|N|TCS|11536|D": [],
+    "yahoo|N|TCS|11536|5": [],
+    "yahoo||TCS|TCS.NS|1": [],
+    "yahoo||TCS|TCS.NS|5": [],
+    "yahoo||INFY|INFY.NS|5": [],
+    "yahoo||INFY|INFY.NS|25": [],
+    "yahoo||INFY|INFY.NS|1": [],
+    "yahoo||TCS|TCS.NS|25": [],
+    "5paisa|N|HDFCBANK|1333|25": [],
+    "5paisa|N|HDFCBANK|1333|D": [],
+    "5paisa|N|HDFCBANK|1333|5": [],
+    "5paisa|N|HDFCBANK|1333|15": [],
+    "5paisa|N|HDFCBANK|1333|1": []
   },
   "broker_intervals": {
     "dhan": [

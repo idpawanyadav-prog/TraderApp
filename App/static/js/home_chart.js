@@ -2488,6 +2488,7 @@
       /* Auto-sync (settings/connect events): keep all slots' instruments. */
       commitSlotGlobals();
       if (typeof renderWatchlist === "function") renderWatchlist();
+      if (typeof refreshYahooNews === "function") refreshYahooNews();
     }
   };
 
@@ -2505,6 +2506,7 @@
       /* Auto-sync: keep all slots' instruments. */
       commitSlotGlobals();
       if (typeof renderWatchlist === "function") renderWatchlist();
+      if (typeof refreshYahooNews === "function") refreshYahooNews();
       return;
     }
     if (connected) {
@@ -2553,6 +2555,7 @@
       unsubscribeLive();
       clearActiveSlotInstrument();
       if (typeof renderWatchlist === "function") renderWatchlist();
+      if (typeof refreshYahooNews === "function") refreshYahooNews();
     });
   });
 
@@ -2637,6 +2640,7 @@
       else if (layoutSync.interval) loadSyncedSlots(activeSlot);
     });
     if (typeof renderWatchlist === "function") renderWatchlist();
+    if (typeof refreshYahooNews === "function") refreshYahooNews();
   }
 
   async function fetchSuggestions(q) {
@@ -8222,6 +8226,9 @@
     if (_wlOpen) {
       renderWatchlist();
       refreshWatchlistQuotes();
+      if (typeof refreshYahooNews === "function") refreshYahooNews();
+    } else if (typeof hideYahooNews === "function") {
+      hideYahooNews();
     }
   }
   function fmtWlPx(v) {
@@ -8296,6 +8303,110 @@
     });
     bindWatchlistDrag(list);
   }
+
+  /* ── News (shown below the watchlist, all brokers except Excel) ── */
+  var _newsKey = "";
+
+  function newsSymbolFor(inst) {
+    if (!inst) return "";
+    if (activeBroker === "yahoo") {
+      return String(inst.yahoo_symbol || inst.scrip_code || inst.trading_symbol || "").trim();
+    }
+    return String(inst.trading_symbol || inst.scrip_code || inst.security_id || "").trim();
+  }
+
+  function newsKeyFor(inst) {
+    if (activeBroker === "excel") return "";
+    var sym = newsSymbolFor(inst);
+    if (!sym) return "";
+    return activeBroker + ":" + sym;
+  }
+
+  function hideYahooNews() {
+    var panel = document.getElementById("wl-news");
+    if (panel) panel.classList.add("hidden");
+    _newsKey = "";
+  }
+
+  function renderNewsEmpty(msg) {
+    var body = document.getElementById("wl-news-body");
+    if (body) body.innerHTML = "<div class=\"wl-news-empty\">" + escHtml(msg || "No news available.") + "</div>";
+  }
+
+  function fmtNewsTime(ts) {
+    if (!ts) return "";
+    var diff = Date.now() - ts * 1000;
+    var m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return m + "m ago";
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + "h ago";
+    var d = Math.floor(h / 24);
+    if (d < 7) return d + "d ago";
+    return new Date(ts * 1000).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  }
+
+  function renderNewsItems(items, inst) {
+    var body = document.getElementById("wl-news-body");
+    if (!body) return;
+    if (!items || !items.length) {
+      renderNewsEmpty("No recent news for " + escHtml((inst && (inst.trading_symbol || newsSymbolFor(inst))) || "this symbol") + ".");
+      return;
+    }
+    body.innerHTML = items.map(function (n) {
+      var thumb = n.thumbnail
+        ? "<img class=\"wl-news-thumb\" src=\"" + escHtml(n.thumbnail) + "\" alt=\"\" loading=\"lazy\" onerror=\"this.style.display='none'\" />"
+        : "";
+      var sub = [];
+      if (n.publisher) sub.push("<span>" + escHtml(n.publisher) + "</span>");
+      var t = fmtNewsTime(n.published);
+      if (t) sub.push("<span>" + escHtml(t) + "</span>");
+      return "<a class=\"wl-news-item\" href=\"" + escHtml(n.link) + "\" target=\"_blank\" rel=\"noopener noreferrer\">" +
+        thumb +
+        "<span class=\"wl-news-meta\">" +
+        "<span class=\"wl-news-headline\">" + escHtml(n.title) + "</span>" +
+        (sub.length ? "<span class=\"wl-news-sub\">" + sub.join("") + "</span>" : "") +
+        "</span></a>";
+    }).join("");
+  }
+
+  async function refreshYahooNews() {
+    var panel = document.getElementById("wl-news");
+    if (!panel) return;
+    var inst = selectedInstrument;
+    var key = newsKeyFor(inst);
+    if (!key) {
+      hideYahooNews();
+      return;
+    }
+    var symEl = document.getElementById("wl-news-symbol");
+    if (symEl) symEl.textContent = newsSymbolFor(inst);
+    panel.classList.remove("hidden");
+    if (key === _newsKey) return;
+    _newsKey = key;
+    var body = document.getElementById("wl-news-body");
+    if (body) body.innerHTML = "<div class=\"wl-news-loading\">Loading news…</div>";
+    try {
+      var url;
+      if (activeBroker === "yahoo") {
+        url = "/api/yahoo/news?yahoo_symbol=" + encodeURIComponent(newsSymbolFor(inst)) +
+          "&trading_symbol=" + encodeURIComponent(inst.trading_symbol || "") +
+          "&count=8";
+      } else {
+        url = "/api/yahoo/news?trading_symbol=" + encodeURIComponent(newsSymbolFor(inst)) +
+          "&count=8";
+      }
+      var res = await fetch(url);
+      var data = await res.json();
+      if (_newsKey !== key) return;
+      if (data && data.success) renderNewsItems(data.items, inst);
+      else renderNewsEmpty((data && data.message) || "No news available.");
+    } catch (e) {
+      if (_newsKey !== key) return;
+      renderNewsEmpty("Unable to load news.");
+    }
+  }
+
   function commitWatchlistOrderFromDom() {
     var list = document.getElementById("wl-list");
     if (!list) return;

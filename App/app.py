@@ -1504,6 +1504,28 @@ def yahoo_instruments_search():
     return jsonify(yf_broker.search_instruments(q, limit=limit))
 
 
+@app.route("/api/yahoo/news")
+def yahoo_news():
+    yahoo_symbol = (request.args.get("yahoo_symbol") or "").strip()
+    trading_symbol = (request.args.get("trading_symbol") or request.args.get("symbol") or "").strip()
+    count = int(request.args.get("count", 8))
+    name = trading_symbol
+    if not yahoo_symbol and trading_symbol:
+        rec = yf_broker.lookup_instrument(trading_symbol)
+        yahoo_symbol = (rec or {}).get("yahoo_symbol") or ""
+        name = (rec or {}).get("trading_symbol") or trading_symbol
+        if not yahoo_symbol:
+            # Symbols from Dhan / 5Paisa aren't in Yahoo Stock List.csv.
+            # Build a Yahoo ticker for NSE symbols (e.g. RELIANCE -> RELIANCE.NS).
+            base = trading_symbol.strip().upper()
+            if base and not base.startswith("^") and not base.endswith((".NS", ".BO")):
+                yahoo_symbol = base + ".NS"
+    if not yahoo_symbol:
+        return jsonify({"success": False, "message": "A search symbol is required."}), 400
+    items = yf_broker.get_news(yahoo_symbol, name=name, count=count)
+    return jsonify({"success": True, "items": items, "count": len(items)})
+
+
 @app.route("/api/yahoo/chart/data", methods=["POST"])
 def yahoo_chart_data():
     s = load_app_settings()
