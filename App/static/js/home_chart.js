@@ -14,6 +14,8 @@
   var LS_DRAW_RAIL = "traderapp.chart.drawRailExpanded";
   var LS_WATCHLIST = "traderapp.chart.watchlist";
   var LS_WATCHLIST_OPEN = "traderapp.chart.watchlistOpen";
+  var LS_AXIS_FONT = "traderapp.chart.axisFontSize";
+  var LS_AXIS_DECIMALS = "traderapp.chart.axisDecimals";
 
   var chart = null;
   var _socket = null;
@@ -174,6 +176,8 @@
   var _pyCoveredFirst = null;
   var _settingsKind = "builtin";
   var _settingsPyMeta = null;
+  var _axisFontSize = 11;
+  var _axisDecimals = 2;
   var _pyLineData = {};
   var SMOOTH_MODELS = [
     { id: "none", label: "None" },
@@ -850,10 +854,10 @@
   function ohlcHtml(d) {
     if (!d || d.close == null) return "";
     return (
-      "<span class=\"ohlc-o\">O <b>" + Number(d.open).toFixed(2) + "</b></span>" +
-      "<span class=\"ohlc-h\">H <b>" + Number(d.high).toFixed(2) + "</b></span>" +
-      "<span class=\"ohlc-l\">L <b>" + Number(d.low).toFixed(2) + "</b></span>" +
-      "<span class=\"ohlc-c\">C <b>" + Number(d.close).toFixed(2) + "</b></span>" +
+      "<span class=\"ohlc-o\">O <b>" + Number(d.open).toFixed(_axisDecimals) + "</b></span>" +
+      "<span class=\"ohlc-h\">H <b>" + Number(d.high).toFixed(_axisDecimals) + "</b></span>" +
+      "<span class=\"ohlc-l\">L <b>" + Number(d.low).toFixed(_axisDecimals) + "</b></span>" +
+      "<span class=\"ohlc-c\">C <b>" + Number(d.close).toFixed(_axisDecimals) + "</b></span>" +
       (d.volume ? "<span class=\"ohlc-v\">V <b>" + Number(d.volume).toLocaleString() + "</b></span>" : "")
     );
   }
@@ -1757,6 +1761,13 @@
   function storageSet(key, val) {
     try { localStorage.setItem(key, JSON.stringify(val)); } catch (_) {}
   }
+  function clampInt(v, min, max, fallback) {
+    v = parseInt(v, 10);
+    if (!isFinite(v)) return fallback;
+    return Math.max(min, Math.min(max, v));
+  }
+  _axisFontSize = clampInt(storageGet(LS_AXIS_FONT, 11), 8, 24, 11);
+  _axisDecimals = clampInt(storageGet(LS_AXIS_DECIMALS, 2), 0, 8, 2);
   _legendExpanded = storageGet(LS_LEGEND, false) === true;
   var _drawingCache = {};
   var _loadedDrawKey = "";
@@ -2190,7 +2201,7 @@
   function fmtPx(v, digits) {
     v = Number(v);
     if (!isFinite(v)) return "—";
-    var d = digits != null ? digits : (Math.abs(v) >= 1 ? 2 : 4);
+    var d = digits != null ? digits : _axisDecimals;
     return v.toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
   }
 
@@ -2294,7 +2305,7 @@
             downColor: hollow ? bar.downColor : "#f85149",
             noChangeColor: "#8b949e",
             /* Hollow ink is white on dark / black on light; default last-text is always white. */
-            text: { color: hollow ? bar.upColor : "#FFFFFF" }
+            text: { color: hollow ? bar.upColor : "#FFFFFF", size: _axisFontSize }
           }
         },
         tooltip: { showRule: "none" }
@@ -2305,19 +2316,48 @@
       xAxis: {
         axisLine: { color: th.border },
         tickLine: { color: th.border },
-        tickText: { color: th.text, size: 11 }
+        tickText: { color: th.text, size: _axisFontSize }
       },
       yAxis: {
         axisLine: { color: th.border },
         tickLine: { color: th.border },
-        tickText: { color: th.text, size: 11 }
+        tickText: { color: th.text, size: _axisFontSize }
       },
       separator: { color: th.border },
       crosshair: {
-        horizontal: { line: { color: th.text, style: "dashed" } },
-        vertical: { line: { color: th.text, style: "dashed" } }
+        horizontal: {
+          line: { color: th.text, style: "dashed" },
+          text: { size: _axisFontSize }
+        },
+        vertical: {
+          line: { color: th.text, style: "dashed" },
+          text: { size: _axisFontSize }
+        }
       }
     };
+  }
+
+  function applyAxisSettingsToCharts() {
+    forEachChart(function (c, i) {
+      _useSlot(i);
+      try { c.setStyles(klineStyles()); } catch (_) {}
+      try { c.setPriceVolumePrecision(_axisDecimals, 0); } catch (_) {}
+    });
+    var si;
+    for (si = 0; si < splitCount; si++) {
+      var s = chartSlots[si];
+      if (!s) continue;
+      var bars = s.rawBars || [];
+      var last = bars.length ? bars[bars.length - 1] : null;
+      if (last) {
+        setSlotOhlc(s, last);
+        setSlotQuote(s, last.close, s.prevClose);
+      }
+    }
+    if (ohlcEl && chartSlots[activeSlot] && chartSlots[activeSlot].rawBars && chartSlots[activeSlot].rawBars.length) {
+      ohlcEl.innerHTML = ohlcHtml(chartSlots[activeSlot].rawBars[chartSlots[activeSlot].rawBars.length - 1]);
+    }
+    _useSlot(activeSlot >= splitCount ? 0 : activeSlot);
   }
 
   function applyChartContainerTheme(el) {
@@ -2603,9 +2643,13 @@
       var tp = document.getElementById("candle-type-pop");
       var sp = document.getElementById("replay-speed-pop");
       var lp = document.getElementById("split-pop");
+      var ap = document.getElementById("chart-axis-pop");
+      var ab = document.getElementById("btn-chart-axis");
       if (tp) tp.classList.add("hidden");
       if (sp) sp.classList.add("hidden");
       if (lp) lp.classList.add("hidden");
+      if (ap) ap.classList.add("hidden");
+      if (ab) ab.setAttribute("aria-expanded", "false");
     }
     if (!e.target.closest(".wl-add-wrap")) {
       if (typeof closeWatchlistAdd === "function") closeWatchlistAdd();
@@ -2725,6 +2769,7 @@
       timezone: IST_TZ,
       styles: klineStyles()
     });
+    try { chart.setPriceVolumePrecision(_axisDecimals, 0); } catch (_) {}
     bindSlotInstance();
     bindHistoryLoader();
     _pyCoveredN = 0;
@@ -3654,6 +3699,86 @@
       }
     });
     klinecharts.registerOverlay({
+      name: "pyChannel",
+      totalStep: 2,
+      needDefaultPointFigure: false,
+      createPointFigures: function (params) {
+        var d = (params.overlay && params.overlay.extendData) || {};
+        var times = d.times || [];
+        var upper = d.upper || [];
+        var mid = d.mid || [];
+        var lower = d.lower || [];
+        var xAxis = params.xAxis;
+        var yAxis = params.yAxis;
+        if (!xAxis || !yAxis) return [];
+        var owner = overlayOwnerChart(params.overlay);
+        var list = chartDataListOf(owner);
+        if (!list.length) return [];
+        var range = visibleBarRangeOf(owner, list.length);
+        var from = range.from;
+        var to = range.to;
+        var span = to - from + 1;
+        var step = Math.max(1, Math.ceil(span / 480));
+
+        function coords(values) {
+          var map = null;
+          var i, ts, v, pt;
+          if (times.length && times.length !== list.length) {
+            map = {};
+            for (i = 0; i < times.length; i++) {
+              if (times[i] != null) map[times[i]] = values[i];
+            }
+          }
+          var out = [];
+          var lastI = -1;
+          for (i = from; i <= to; i += step) {
+            ts = list[i] && list[i].timestamp;
+            v = map ? map[ts] : values[i];
+            if (v == null || !isFinite(v)) continue;
+            pt = panePoint(ts, v, i, xAxis, yAxis, owner);
+            if (!pt) continue;
+            out.push(pt);
+            lastI = i;
+          }
+          if (lastI < to && list[to]) {
+            ts = list[to].timestamp;
+            v = map ? map[ts] : values[to];
+            if (v != null && isFinite(v)) {
+              pt = panePoint(ts, v, to, xAxis, yAxis, owner);
+              if (pt) out.push(pt);
+            }
+          }
+          return out;
+        }
+
+        var figs = [];
+        var uc = coords(upper);
+        var mc = coords(mid);
+        var lc = coords(lower);
+        if (d.fill !== false && uc.length > 1 && lc.length > 1) {
+          var poly = uc.concat(lc.slice().reverse());
+          if (poly.length >= 3) {
+            figs.push({
+              type: "polygon",
+              ignoreEvent: true,
+              attrs: { coordinates: poly },
+              styles: { style: "fill", color: hexToRgba(d.fill_color || d.mid_color || "#58a6ff", 0.12) }
+            });
+          }
+        }
+        if (d.show_upper !== false && uc.length > 1) {
+          figs.push({ type: "line", ignoreEvent: true, attrs: { coordinates: uc }, styles: { color: d.upper_color || "#ef5350", size: 1 } });
+        }
+        if (d.show_mid !== false && mc.length > 1) {
+          figs.push({ type: "line", ignoreEvent: true, attrs: { coordinates: mc }, styles: { color: d.mid_color || "#58a6ff", size: 1 } });
+        }
+        if (d.show_lower !== false && lc.length > 1) {
+          figs.push({ type: "line", ignoreEvent: true, attrs: { coordinates: lc }, styles: { color: d.lower_color || "#26a69a", size: 1 } });
+        }
+        return figs;
+      }
+    });
+    klinecharts.registerOverlay({
       name: "excelLine",
       totalStep: 3,
       needDefaultPointFigure: false,
@@ -3849,7 +3974,7 @@
     overlayIds.forEach(function (id) {
       var o = chart.getOverlayById(id);
       if (!o || !o.points || !o.points.length) return;
-      if (o.name === "pyZone" || o.name === "pySmooth" || o.name === "pyMarker" || o.name === "excelLine" || o.name === "excelLabel") return;
+      if (o.name === "pyZone" || o.name === "pySmooth" || o.name === "pyMarker" || o.name === "pyChannel" || o.name === "excelLine" || o.name === "excelLabel") return;
       var points = normalizeSavedPoints(o.name, o.points);
       if (!points.length) return;
       saved.push({
@@ -3899,7 +4024,7 @@
     selectedOverlayId = null;
     if (!chart || !saved || !saved.length) return;
     saved.forEach(function (item) {
-      if (!item || !item.name || !item.points || item.name === "pyZone" || item.name === "pySmooth" || item.name === "pyMarker" || item.name === "excelLine" || item.name === "excelLabel") return;
+      if (!item || !item.name || !item.points || item.name === "pyZone" || item.name === "pySmooth" || item.name === "pyMarker" || item.name === "pyChannel" || item.name === "excelLine" || item.name === "excelLabel") return;
       var spec = Object.assign({
         name: item.name,
         points: normalizeSavedPoints(item.name, item.points)
@@ -4758,7 +4883,7 @@
     var box = document.getElementById("ind-settings-box");
     if (resetBtn) resetBtn.classList.add("hidden");
     if (box) {
-      if (isMarkersMeta(spec)) {
+      if (isMarkersMeta(spec) || isChannelMeta(spec)) {
         box.classList.add("chart-modal-wide");
         box.style.maxWidth = "640px";
       } else {
@@ -4971,6 +5096,10 @@
 
   function isMarkersMeta(meta) {
     return !!(meta && meta.draw === "markers");
+  }
+
+  function isChannelMeta(meta) {
+    return !!(meta && meta.draw === "channel");
   }
 
   function cloneJson(v) {
@@ -5347,7 +5476,7 @@
   function openPyIndSettingsAdd(id) {
     var meta = pyMeta(id);
     if (!meta) return;
-    if (!isSmoothingMeta(meta) && !isMarkersMeta(meta)) {
+    if (!isSmoothingMeta(meta) && !isMarkersMeta(meta) && !isChannelMeta(meta)) {
       applyPythonIndicator(id);
       return;
     }
@@ -5362,7 +5491,7 @@
     _settingsPyMeta = meta;
     editingIndIdx = null;
     pendingIndName = id;
-    if (isMarkersMeta(meta)) {
+    if (isMarkersMeta(meta) || isChannelMeta(meta)) {
       fillIndSettingsModal(meta.name, pyDefaultParams(meta), "#58a6ff", false, meta);
       return;
     }
@@ -5549,6 +5678,32 @@
     item.pyOverlayIds = id ? [id] : [];
   }
 
+  function drawPythonChannel(item, channel) {
+    if (!chart || !item) return;
+    removePythonOverlays(item);
+    if (item.visible === false) return;
+    if (!channel) return;
+    var hasUpper = (channel.upper || []).some(function (v) { return v != null && isFinite(Number(v)); });
+    var hasMid = (channel.mid || []).some(function (v) { return v != null && isFinite(Number(v)); });
+    var hasLower = (channel.lower || []).some(function (v) { return v != null && isFinite(Number(v)); });
+    if (!hasUpper && !hasMid && !hasLower) return;
+    var list = chartDataList();
+    var t0 = list.length ? list[0].timestamp : 0;
+    var spec = {
+      name: "pyChannel",
+      groupId: pyGroupId(item),
+      lock: true,
+      points: [
+        { timestamp: t0, value: 0 },
+        { timestamp: t0, value: 0 }
+      ],
+      extendData: channel
+    };
+    var id = null;
+    try { id = chart.createOverlay(spec, "candle_pane"); } catch (_) {}
+    item.pyOverlayIds = id ? [id] : [];
+  }
+
   function hasPythonIndicators() {
     return activeIndicators.some(function (item) {
       return item && item.kind === "python" && item.visible !== false;
@@ -5638,6 +5793,7 @@
         if (!chart) return;
         item.pyStats = data.stats || {};
         if (isMarkersMeta(meta)) drawPythonMarkers(item, data);
+        else if (isChannelMeta(meta)) drawPythonChannel(item, data.channel);
         else drawPythonZones(item, data.zones || []);
         if (slotIdx === activeSlot) updateChartLegendValues();
       });
@@ -5877,6 +6033,13 @@
           { title: "Bull", value: st.bullish },
           { title: "Bear", value: st.bearish },
           { title: "Total", value: st.total }
+        ];
+      }
+      if (st.slope != null) {
+        return [
+          { title: "Slope", value: st.slope },
+          { title: "Width", value: st.half_width },
+          { title: "Bars", value: st.bars }
         ];
       }
       return [
@@ -6531,6 +6694,8 @@
     if (sp) sp.classList.add("hidden");
     var tp = document.getElementById("candle-type-pop");
     if (tp) tp.classList.add("hidden");
+    var ap = document.getElementById("chart-axis-pop");
+    if (ap) ap.classList.add("hidden");
     if (opening && isIndPickerOpen()) {
       var inp = document.getElementById("ind-search");
       if (inp) inp.focus();
@@ -6552,10 +6717,65 @@
       renderCandleTypePop();
       var pop = document.getElementById("candle-type-pop");
       var sp3 = document.getElementById("split-pop");
+      var ap = document.getElementById("chart-axis-pop");
       closeIndPicker();
       if (sp3) sp3.classList.add("hidden");
+      if (ap) ap.classList.add("hidden");
       if (pop) pop.classList.toggle("hidden");
     });
+  })();
+  (function () {
+    var btn = document.getElementById("btn-chart-axis");
+    var pop = document.getElementById("chart-axis-pop");
+    var fontEl = document.getElementById("chart-axis-font");
+    var decEl = document.getElementById("chart-axis-decimals");
+    if (!btn || !pop) return;
+    function fillAxisInputs() {
+      if (fontEl) fontEl.value = String(_axisFontSize);
+      if (decEl) decEl.value = String(_axisDecimals);
+    }
+    fillAxisInputs();
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var opening = pop.classList.contains("hidden");
+      fillAxisInputs();
+      closeIndPicker();
+      var tp = document.getElementById("candle-type-pop");
+      var sp = document.getElementById("split-pop");
+      if (tp) tp.classList.add("hidden");
+      if (sp) sp.classList.add("hidden");
+      pop.classList.toggle("hidden");
+      btn.setAttribute("aria-expanded", opening ? "true" : "false");
+      if (opening && fontEl) fontEl.focus();
+    });
+    function onFontChange() {
+      var next = clampInt(fontEl.value, 8, 24, _axisFontSize);
+      fontEl.value = String(next);
+      if (next === _axisFontSize) return;
+      _axisFontSize = next;
+      storageSet(LS_AXIS_FONT, _axisFontSize);
+      applyAxisSettingsToCharts();
+    }
+    function onDecChange() {
+      var next = clampInt(decEl.value, 0, 8, _axisDecimals);
+      decEl.value = String(next);
+      if (next === _axisDecimals) return;
+      _axisDecimals = next;
+      storageSet(LS_AXIS_DECIMALS, _axisDecimals);
+      applyAxisSettingsToCharts();
+    }
+    if (fontEl) {
+      fontEl.addEventListener("change", onFontChange);
+      fontEl.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); onFontChange(); }
+      });
+    }
+    if (decEl) {
+      decEl.addEventListener("change", onDecChange);
+      decEl.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); onDecChange(); }
+      });
+    }
   })();
   var clearDrawBtn = document.getElementById("btn-clear-drawings");
   if (clearDrawBtn) {
@@ -7951,9 +8171,11 @@
       var opening = pop.classList.contains("hidden");
       pop.classList.toggle("hidden");
       var tp = document.getElementById("candle-type-pop");
+      var ap = document.getElementById("chart-axis-pop");
       if (opening) {
         closeIndPicker();
         if (tp) tp.classList.add("hidden");
+        if (ap) ap.classList.add("hidden");
       }
     });
   }
