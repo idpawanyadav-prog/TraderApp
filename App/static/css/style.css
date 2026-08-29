@@ -2665,6 +2665,43 @@ button:hover { opacity: 0.85; }
 }
 .chart-type-item:hover { background: var(--surface2); }
 .chart-type-item.on { background: var(--accent-tint); color: var(--accent); }
+.chart-axis-pop {
+  min-width: 240px;
+  max-width: 280px;
+  padding: 10px 12px 12px;
+}
+.chart-axis-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0 4px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.chart-axis-field input {
+  width: 64px;
+  height: 28px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.chart-axis-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.chart-axis-hint {
+  margin: 0 0 6px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
 .chart-type-icon {
   width: 22px;
   height: 16px;
