@@ -267,6 +267,45 @@ After the indicator is on the chart, open it from the indicator legend / picker 
 
 ---
 
+## Method C — Strategy / backtest plugin
+
+Set `META["draw"]` to `"strategy"`. `compute` should return:
+
+```python
+{
+    "markers": [  # optional labels on bars
+        {"time": ts, "value": price, "text": "L", "position": "bottom", "color": "#26a69a"},
+    ],
+    "trades": [   # filled trades for lines + triangles
+        {
+            "side": "long",  # or "short"
+            "entry_time": ts, "entry_price": 100.0,
+            "exit_time": ts, "exit_price": 101.0,
+            "qty": 65, "pnl": 500.0, "win": True, "reason": "t1",
+        },
+    ],
+    "stats": {
+        "backtest": True,   # legend shows N / WR% / PF / Net / DD%
+        "trades": 12, "win_rate": 55.0, "profit_factor": 1.4,
+        "net_pnl": 3200.0, "max_dd_pct": 2.1,
+    },
+}
+```
+
+Use `analysis.strategy_backtest.run_backtest(candles, setups, params)` so fills, stops, partials, trailing, square-off, daily loss, and costs stay consistent.
+
+Each setup:
+
+```python
+{"index": i, "side": 1, "entry": price, "stop": price, "atr": atr, "score": 80}
+```
+
+`index` is the **confirmation** bar. The engine places a stop order and fills on a **later** bar only (no same-bar lookahead). When stop and target both trade in one bar, the stop is taken first.
+
+See `aitp.py` for a full example (Adaptive Intraday Trend Pullback).
+
+---
+
 ## Method B — Formula editor (no Python file)
 
 Use this for a single line from OHLCV.

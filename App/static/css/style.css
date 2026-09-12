@@ -2382,6 +2382,20 @@ button:hover { opacity: 0.85; }
   font-family: inherit;
 }
 .ind-param-grid { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.ind-param-grid.ind-param-grouped {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+}
+.ind-param-group {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
 .ind-param-row label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
 .ind-param-toggle {
   display: flex;

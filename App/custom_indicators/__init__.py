@@ -36,11 +36,12 @@ def catalog():
         meta["overlay"] = bool(meta.get("overlay", True))
         meta["draw"] = str(meta.get("draw") or "line")
         meta["api"] = meta["draw"].lower() in ("line", "lines")
+        meta["backtest"] = meta["draw"].lower() == "strategy"
         params = []
         for p in meta.get("params") or []:
             if not isinstance(p, dict) or not p.get("key"):
                 continue
-            params.append({
+            item = {
                 "key": str(p["key"]),
                 "label": str(p.get("label") or p["key"]),
                 "def": p.get("def"),
@@ -48,7 +49,10 @@ def catalog():
                 "max": p.get("max"),
                 "step": p.get("step", 1),
                 "type": str(p.get("type") or "number"),
-            })
+            }
+            if p.get("group"):
+                item["group"] = str(p.get("group"))
+            params.append(item)
         meta["params"] = params
         if "factory" in mod.META:
             meta["factory"] = mod.META["factory"]

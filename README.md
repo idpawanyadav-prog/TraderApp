@@ -9,7 +9,7 @@ TraderApp is a Flask + Socket.IO trading dashboard. It connects to broker APIs (
 - **Stock news** — a news panel below the watchlist for the selected symbol (Dhan, 5Paisa, and Yahoo; Excel is excluded)
 - **Brokers** — Dhan, 5Paisa, Yahoo Finance, and Excel (`xlwings`)
 - **Live updates** — Socket.IO feed for 5Paisa (polled and pushed to the chart)
-- **Custom indicators** — Python modules in `custom_indicators/` appear in the chart Custom menu
+- **Custom indicators** — Python modules in `custom_indicators/` appear in the chart Custom menu; plugins with `draw: "strategy"` backtest on the loaded candles
 - **Correlation Density** — pair scan, pair-detail charts, live hedge quotes
 - **Option analysis** — option chain, open interest, gamma exposure, strategy builder (needs Dhan or 5Paisa)
 - **Settings** — brokers, markets, intervals, option-chain columns, indicators, optional public API

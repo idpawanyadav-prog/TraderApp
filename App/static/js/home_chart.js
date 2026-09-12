@@ -170,6 +170,7 @@
   var _legendIndex = null;
   var IND_COLORS = ["#58a6ff", "#f0883e", "#3fb950", "#d2a8ff", "#f85149", "#79c0ff", "#ffa657", "#7ee787"];
   var CUSTOM_OVERLAYS = { tvText: 1, tvRect: 1, tvMeasure: 1, tvLongPosition: 1, tvShortPosition: 1, pyZone: 1, pySmooth: 1 };
+  var PY_OVERLAY_NAMES = { pyZone: 1, pySmooth: 1, pyMarker: 1, pyChannel: 1, pyStrategy: 1, excelLine: 1, excelLabel: 1 };
   var _pyCatalog = [];
   var _pyRefreshTimer = null;
   var _pyCoveredN = 0;
@@ -3779,6 +3780,107 @@
       }
     });
     klinecharts.registerOverlay({
+      name: "pyStrategy",
+      totalStep: 2,
+      needDefaultPointFigure: false,
+      createPointFigures: function (params) {
+        var ext = (params.overlay && params.overlay.extendData) || {};
+        var trades = ext.trades || [];
+        var markers = ext.markers || [];
+        var fontSize = Number(ext.fontSize) || 10;
+        var xAxis = params.xAxis;
+        var yAxis = params.yAxis;
+        if (!xAxis || !yAxis) return [];
+        var owner = overlayOwnerChart(params.overlay);
+        var list = chartDataListOf(owner);
+        if (!list.length) return [];
+        var range = visibleBarRangeOf(owner, list.length);
+        var figs = [];
+        var i, t, a, b, ts0, ts1, v0, v1, idx0, idx1, pt0, pt1, color, win, m, ts, idx, v, pt, isTop, y, s, up;
+
+        function tri(pt, upArrow, fill) {
+          s = 6;
+          return {
+            type: "polygon",
+            ignoreEvent: true,
+            attrs: {
+              coordinates: upArrow
+                ? [{ x: pt.x, y: pt.y - 1 }, { x: pt.x - s, y: pt.y + s }, { x: pt.x + s, y: pt.y + s }]
+                : [{ x: pt.x, y: pt.y + 1 }, { x: pt.x - s, y: pt.y - s }, { x: pt.x + s, y: pt.y - s }]
+            },
+            styles: { style: "fill", color: fill }
+          };
+        }
+
+        for (i = 0; i < trades.length; i++) {
+          t = trades[i];
+          if (!t) continue;
+          ts0 = t.entry_time != null ? Number(t.entry_time) : null;
+          ts1 = t.exit_time != null ? Number(t.exit_time) : null;
+          v0 = Number(t.entry_price);
+          v1 = Number(t.exit_price);
+          if (!isFinite(v0)) continue;
+          idx0 = timestampIndex(ts0, list);
+          idx1 = timestampIndex(ts1, list);
+          if (idx0 < range.from - 2 && (idx1 < 0 || idx1 < range.from - 2)) continue;
+          if (idx0 > range.to + 2 && idx1 > range.to + 2) continue;
+          win = !!t.win;
+          color = win ? "#3fb950" : "#f85149";
+          pt0 = panePoint(ts0, v0, idx0, xAxis, yAxis, owner);
+          pt1 = isFinite(v1) ? panePoint(ts1, v1, idx1, xAxis, yAxis, owner) : null;
+          if (pt0 && pt1) {
+            figs.push({
+              type: "line",
+              ignoreEvent: true,
+              attrs: { coordinates: [pt0, pt1] },
+              styles: { color: color, size: 1, style: "dashed", dashedValue: [4, 3] }
+            });
+          }
+          if (pt0) figs.push(tri(pt0, t.side !== "short", color));
+          if (pt1) {
+            figs.push({
+              type: "circle",
+              ignoreEvent: true,
+              attrs: { x: pt1.x, y: pt1.y, r: 3 },
+              styles: { style: "stroke_fill", color: color, borderColor: color }
+            });
+          }
+        }
+        for (i = 0; i < markers.length; i++) {
+          m = markers[i];
+          if (!m) continue;
+          ts = m.time != null ? Number(m.time) : null;
+          idx = timestampIndex(ts, list);
+          if (idx < range.from - 1 || idx > range.to + 1) continue;
+          v = Number(m.value);
+          if (!isFinite(v)) continue;
+          pt = panePoint(ts, v, idx, xAxis, yAxis, owner);
+          if (!pt) continue;
+          isTop = m.position === "top";
+          y = isTop ? pt.y - 8 : pt.y + 8;
+          figs.push({
+            type: "text",
+            ignoreEvent: true,
+            attrs: { x: pt.x, y: y, text: String(m.text || ""), align: "center", baseline: isTop ? "bottom" : "top" },
+            styles: {
+              color: m.color || "#ef5350",
+              size: fontSize,
+              weight: "bold",
+              family: "Segoe UI, Arial, sans-serif",
+              backgroundColor: "rgba(0,0,0,0)",
+              borderColor: "rgba(0,0,0,0)",
+              borderSize: 0,
+              paddingLeft: 0,
+              paddingRight: 0,
+              paddingTop: 0,
+              paddingBottom: 0
+            }
+          });
+        }
+        return figs;
+      }
+    });
+    klinecharts.registerOverlay({
       name: "excelLine",
       totalStep: 3,
       needDefaultPointFigure: false,
@@ -3974,7 +4076,7 @@
     overlayIds.forEach(function (id) {
       var o = chart.getOverlayById(id);
       if (!o || !o.points || !o.points.length) return;
-      if (o.name === "pyZone" || o.name === "pySmooth" || o.name === "pyMarker" || o.name === "pyChannel" || o.name === "excelLine" || o.name === "excelLabel") return;
+      if (PY_OVERLAY_NAMES[o.name]) return;
       var points = normalizeSavedPoints(o.name, o.points);
       if (!points.length) return;
       saved.push({
@@ -4024,7 +4126,7 @@
     selectedOverlayId = null;
     if (!chart || !saved || !saved.length) return;
     saved.forEach(function (item) {
-      if (!item || !item.name || !item.points || item.name === "pyZone" || item.name === "pySmooth" || item.name === "pyMarker" || item.name === "pyChannel" || item.name === "excelLine" || item.name === "excelLabel") return;
+      if (!item || !item.name || !item.points || PY_OVERLAY_NAMES[item.name]) return;
       var spec = Object.assign({
         name: item.name,
         points: normalizeSavedPoints(item.name, item.points)
@@ -4883,9 +4985,9 @@
     var box = document.getElementById("ind-settings-box");
     if (resetBtn) resetBtn.classList.add("hidden");
     if (box) {
-      if (isMarkersMeta(spec) || isChannelMeta(spec)) {
+      if (isMarkersMeta(spec) || isChannelMeta(spec) || isStrategyMeta(spec)) {
         box.classList.add("chart-modal-wide");
-        box.style.maxWidth = "640px";
+        box.style.maxWidth = isStrategyMeta(spec) ? "720px" : "640px";
       } else {
         box.classList.remove("chart-modal-wide");
         box.style.maxWidth = "400px";
@@ -4904,13 +5006,17 @@
       return;
     }
     if (hint) {
-      hint.textContent = spec.csv
-        ? (isEdit
-          ? "Update this instance. Add the same indicator again for another length, e.g. EMA 20 and EMA 200."
-          : "Enter the lookback in candles. Add this indicator again for another length (EMA 20 and EMA 200). Or type 9, 20, 50 for several lines in one instance.")
-        : (isEdit
-          ? "Update the existing values. You can change these anytime from Indicators."
-          : "Set the inputs, then apply. You can add the same indicator more than once with different settings.");
+      if (isStrategyMeta(spec)) {
+        hint.textContent = "Signals are scored 0–100 and backtested on the loaded candles (causal, with costs). Use a 5-minute chart. Raise the score threshold if there are too many trades.";
+      } else {
+        hint.textContent = spec.csv
+          ? (isEdit
+            ? "Update this instance. Add the same indicator again for another length, e.g. EMA 20 and EMA 200."
+            : "Enter the lookback in candles. Add this indicator again for another length (EMA 20 and EMA 200). Or type 9, 20, 50 for several lines in one instance.")
+          : (isEdit
+            ? "Update the existing values. You can change these anytime from Indicators."
+            : "Set the inputs, then apply. You can add the same indicator more than once with different settings.");
+      }
     }
     if (fields) {
       if (spec.csv) {
@@ -4918,24 +5024,32 @@
         fields.innerHTML = '<div class="ind-param-grid"><div class="ind-param-row"><label for="ind-param-0">' +
           spec.params[0].label + '</label><input type="text" id="ind-param-0" value="' + csvVal + '" /></div></div>';
       } else {
-        fields.innerHTML = '<div class="ind-param-grid">' + spec.params.map(function (p, i) {
-          var val = params[i] != null ? params[i] : p.def;
-          if (p.type === "bool") {
-            var on = val === false || val === 0 || val === "0" || val === "false" ? false : !!val;
-            return '<div class="ind-param-row ind-param-toggle"><span>' + p.label + "</span>" +
-              '<label class="toggle-switch"><input type="checkbox" id="ind-param-' + i + '"' +
-              (on ? " checked" : "") + ' /><span class="toggle-slider"></span></label></div>';
-          }
-          if (p.type === "color") {
-            return '<div class="ind-param-row"><label for="ind-param-' + i + '">' + p.label + '</label>' +
-              '<input type="color" id="ind-param-' + i + '" value="' + val + '" /></div>';
-          }
-          var min = p.min != null ? p.min : 1;
-          var max = p.max != null ? p.max : 500;
-          var step = p.step != null ? p.step : 1;
-          return '<div class="ind-param-row"><label for="ind-param-' + i + '">' + p.label + '</label>' +
-            '<input type="number" id="ind-param-' + i + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" /></div>';
-        }).join("") + "</div>";
+        fields.innerHTML = '<div class="ind-param-grid' + (isStrategyMeta(spec) ? " ind-param-grouped" : "") + '">' +
+          spec.params.map(function (p, i) {
+            var val = params[i] != null ? params[i] : p.def;
+            var row = "";
+            if (p.group && (i === 0 || (spec.params[i - 1] && spec.params[i - 1].group) !== p.group)) {
+              row += '<div class="ind-param-group">' + escHtml(p.group) + "</div>";
+            }
+            if (p.type === "bool") {
+              var on = val === false || val === 0 || val === "0" || val === "false" ? false : !!val;
+              row += '<div class="ind-param-row ind-param-toggle"><span>' + p.label + "</span>" +
+                '<label class="toggle-switch"><input type="checkbox" id="ind-param-' + i + '"' +
+                (on ? " checked" : "") + ' /><span class="toggle-slider"></span></label></div>';
+              return row;
+            }
+            if (p.type === "color") {
+              row += '<div class="ind-param-row"><label for="ind-param-' + i + '">' + p.label + '</label>' +
+                '<input type="color" id="ind-param-' + i + '" value="' + val + '" /></div>';
+              return row;
+            }
+            var min = p.min != null ? p.min : 1;
+            var max = p.max != null ? p.max : 500;
+            var step = p.step != null ? p.step : 1;
+            row += '<div class="ind-param-row"><label for="ind-param-' + i + '">' + p.label + '</label>' +
+              '<input type="number" id="ind-param-' + i + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" /></div>';
+            return row;
+          }).join("") + "</div>";
       }
     }
     if (colorWrap) colorWrap.style.display = (specOverride || spec.hideColor) ? "none" : "";
@@ -5100,6 +5214,10 @@
 
   function isChannelMeta(meta) {
     return !!(meta && meta.draw === "channel");
+  }
+
+  function isStrategyMeta(meta) {
+    return !!(meta && (meta.draw === "strategy" || meta.backtest));
   }
 
   function cloneJson(v) {
@@ -5476,7 +5594,7 @@
   function openPyIndSettingsAdd(id) {
     var meta = pyMeta(id);
     if (!meta) return;
-    if (!isSmoothingMeta(meta) && !isMarkersMeta(meta) && !isChannelMeta(meta)) {
+    if (!isSmoothingMeta(meta) && !isMarkersMeta(meta) && !isChannelMeta(meta) && !isStrategyMeta(meta)) {
       applyPythonIndicator(id);
       return;
     }
@@ -5491,7 +5609,7 @@
     _settingsPyMeta = meta;
     editingIndIdx = null;
     pendingIndName = id;
-    if (isMarkersMeta(meta) || isChannelMeta(meta)) {
+    if (isMarkersMeta(meta) || isChannelMeta(meta) || isStrategyMeta(meta)) {
       fillIndSettingsModal(meta.name, pyDefaultParams(meta), "#58a6ff", false, meta);
       return;
     }
@@ -5704,6 +5822,30 @@
     item.pyOverlayIds = id ? [id] : [];
   }
 
+  function drawPythonStrategy(item, data) {
+    if (!chart || !item) return;
+    removePythonOverlays(item);
+    if (item.visible === false) return;
+    var trades = (data && data.trades) || [];
+    var markers = (data && data.markers) || [];
+    if (!trades.length && !markers.length) return;
+    var list = chartDataList();
+    var t0 = list.length ? list[0].timestamp : 0;
+    var spec = {
+      name: "pyStrategy",
+      groupId: pyGroupId(item),
+      lock: true,
+      points: [
+        { timestamp: t0, value: 0 },
+        { timestamp: t0, value: 0 }
+      ],
+      extendData: { trades: trades, markers: markers, fontSize: (data && data.font_size) || 10 }
+    };
+    var id = null;
+    try { id = chart.createOverlay(spec, "candle_pane"); } catch (_) {}
+    item.pyOverlayIds = id ? [id] : [];
+  }
+
   function hasPythonIndicators() {
     return activeIndicators.some(function (item) {
       return item && item.kind === "python" && item.visible !== false;
@@ -5794,6 +5936,7 @@
         item.pyStats = data.stats || {};
         if (isMarkersMeta(meta)) drawPythonMarkers(item, data);
         else if (isChannelMeta(meta)) drawPythonChannel(item, data.channel);
+        else if (isStrategyMeta(meta)) drawPythonStrategy(item, data);
         else drawPythonZones(item, data.zones || []);
         if (slotIdx === activeSlot) updateChartLegendValues();
       });
@@ -6028,6 +6171,15 @@
         }).filter(function (v) { return v.value != null && isFinite(Number(v.value)); });
       }
       var st = item.pyStats || {};
+      if (st.backtest) {
+        return [
+          { title: "N", value: st.trades },
+          { title: "WR%", value: st.win_rate },
+          { title: "PF", value: st.profit_factor },
+          { title: "Net", value: st.net_pnl },
+          { title: "DD%", value: st.max_dd_pct }
+        ].filter(function (v) { return v.value != null && v.value !== ""; });
+      }
       if (st.bullish != null || st.bearish != null) {
         return [
           { title: "Bull", value: st.bullish },
@@ -6538,7 +6690,7 @@
       html += '<div class="ind-picker-row with-actions">' + favStarBtn("python", m.id) +
         '<button type="button" class="ind-list-item" data-pick="python" data-py="' + escHtml(m.id) + '">' +
         '<span class="ind-list-name">' + escHtml(m.name) + (n ? " · " + n + " on" : "") + "</span></button>" +
-        '<span class="ind-list-code">Python</span><span class="chart-pop-row-actions"></span></div>';
+        '<span class="ind-list-code">' + (m.draw === "strategy" ? "Strategy" : "Python") + "</span><span class=\"chart-pop-row-actions\"></span></div>";
     });
     if (_pyCatalog.length && !pyShown) {
       html += "<div class=\"chart-pop-row\"><span class=\"settings-broker-desc\">No Python indicators match</span></div>";
